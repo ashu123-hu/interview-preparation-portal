@@ -16,8 +16,9 @@ from streamlit_autorefresh import st_autorefresh
 
 from database import (
     add_attempt, authenticate_user, create_question, delete_question,
-    email_in_use, get_bookmarks, get_dashboard, get_questions, init_db,
-    register_user, set_bookmark, update_question, username_exists,
+    email_in_use, get_account_by_email, get_bookmarks, get_dashboard,
+    get_questions, init_db, register_user, set_bookmark, update_question,
+    update_user_password, username_exists,
 )
 
 
@@ -29,8 +30,8 @@ def setting(name, default=""):
     return value or os.environ.get(name, default)
 
 
-def send_verification_email(recipient, code):
-    """Send a short-lived signup code using Brevo's transactional email API."""
+def send_verification_email(recipient, code, purpose="signup"):
+    """Send a short-lived signup or password-reset code with Brevo."""
     api_key = setting("BREVO_API_KEY").strip()
     sender_email = setting("BREVO_SENDER_EMAIL").strip()
     sender_name = setting("BREVO_SENDER_NAME", "Interview Prep Portal").strip()
@@ -40,16 +41,19 @@ def send_verification_email(recipient, code):
             "BREVO_SENDER_EMAIL to .streamlit/secrets.toml."
         )
 
+    is_password_reset = purpose == "password reset"
+    action = "reset your password" if is_password_reset else "finish creating your account"
+    subject = "Your Interview Prep Portal password reset code" if is_password_reset else "Your Interview Prep Portal verification code"
     body = {
         "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": recipient}],
-        "subject": "Your Interview Prep Portal verification code",
+        "subject": subject,
         "textContent": (
-            f"Your signup verification code is {code}. It expires in 10 minutes. "
+            f"Use this code to {action}: {code}. It expires in 10 minutes. "
             "If you did not request this code, you can ignore this email."
         ),
         "htmlContent": (
-            "<p>Use this code to finish creating your Interview Prep Portal account:</p>"
+            f"<p>Use this code to {action} in Interview Prep Portal:</p>"
             f"<p style=\"font-size:28px;font-weight:bold;letter-spacing:6px\">{code}</p>"
             "<p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>"
         ),
@@ -206,6 +210,108 @@ if "user" not in st.session_state:
                         st.session_state.user = account
                         st.rerun()
                     st.error("Username or password is incorrect.")
+
+                if st.session_state.pop("password_reset_success", False):
+                    st.success("Password updated. Log in with your username and new password.")
+
+                reset_pending = st.session_state.get("password_reset_pending")
+                with st.expander("Forgot password? Reset it with your email", expanded=bool(reset_pending)):
+                    reset_pending = st.session_state.get("password_reset_pending")
+                    now = time.time()
+                    if reset_pending and now >= reset_pending["expires_at"]:
+                        st.session_state.pop("password_reset_pending", None)
+                        reset_pending = None
+                        st.warning("That reset code expired. Request a new one to continue.")
+
+                    if reset_pending:
+                        st.caption("Enter the 6-digit code from your email and choose a new password. The code expires in 10 minutes.")
+                        with st.form("password_reset_form"):
+                            reset_code = st.text_input("Email code", max_chars=6, placeholder="000000", key="password_reset_code")
+                            reset_password = st.text_input("New password (at least 8 characters)", type="password", key="password_reset_new_password")
+                            reset_confirm = st.text_input("Confirm new password", type="password", key="password_reset_confirm_password")
+                            reset_clicked = st.form_submit_button("Reset password", type="primary", width="stretch")
+                        if reset_clicked:
+                            if not reset_code.isdigit() or len(reset_code) != 6:
+                                st.error("Enter the 6-digit code from your email.")
+                            elif reset_pending["attempts"] >= 5:
+                                st.session_state.pop("password_reset_pending", None)
+                                st.error("Too many incorrect code attempts. Start the reset again.")
+                            elif not secrets.compare_digest(reset_code, reset_pending["code"]):
+                                reset_pending["attempts"] += 1
+                                if reset_pending["attempts"] >= 5:
+                                    st.session_state.pop("password_reset_pending", None)
+                                    st.error("Too many incorrect code attempts. Start the reset again.")
+                                else:
+                                    st.session_state.password_reset_pending = reset_pending
+                                    st.error(f"That code is incorrect. {5 - reset_pending['attempts']} attempt(s) remaining.")
+                            elif reset_pending["user_id"] is None:
+                                st.error("That code is invalid or expired. Request a new reset code.")
+                            elif len(reset_password) < 8:
+                                st.error("Choose a password with at least 8 characters.")
+                            elif reset_password != reset_confirm:
+                                st.error("The passwords do not match.")
+                            elif not update_user_password(reset_pending["user_id"], reset_password):
+                                st.session_state.pop("password_reset_pending", None)
+                                st.error("That account could not be updated. Start the reset again.")
+                            else:
+                                st.session_state.pop("password_reset_pending", None)
+                                st.session_state.password_reset_success = True
+                                st.rerun()
+
+                        cooldown = 60 - int(time.time() - reset_pending["sent_at"])
+                        resend_limit_reached = reset_pending["send_count"] >= 4
+                        if st.button("Resend reset code", disabled=cooldown > 0 or resend_limit_reached, key="resend_password_reset_code"):
+                            new_code = f"{secrets.randbelow(1_000_000):06d}"
+                            try:
+                                if reset_pending["user_id"] is not None:
+                                    send_verification_email(reset_pending["email"], new_code, purpose="password reset")
+                            except Exception as error:
+                                st.error(f"Could not resend the reset email. Check your Brevo sender and API settings. {error}")
+                            else:
+                                reset_pending.update({
+                                    "code": new_code,
+                                    "expires_at": time.time() + 600,
+                                    "sent_at": time.time(),
+                                    "attempts": 0,
+                                    "send_count": reset_pending["send_count"] + 1,
+                                })
+                                st.session_state.password_reset_pending = reset_pending
+                                st.info("If a matching account exists, a new code has been sent. Check your inbox and spam folder.")
+                        if cooldown > 0 and not resend_limit_reached:
+                            st.caption(f"You can request another code in {cooldown} seconds.")
+                        elif resend_limit_reached:
+                            st.caption("You have reached the resend limit. Start a new reset request later.")
+                        if st.button("Use a different email", key="cancel_password_reset"):
+                            st.session_state.pop("password_reset_pending", None)
+                            st.rerun()
+                    else:
+                        with st.form("request_password_reset_form"):
+                            reset_email = st.text_input("Account email address", placeholder="you@example.com", key="password_reset_email")
+                            request_reset_clicked = st.form_submit_button("Send reset code", type="primary", width="stretch")
+                        if request_reset_clicked:
+                            normalized_email = reset_email.strip().lower()
+                            if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized_email):
+                                st.error("Enter a valid email address.")
+                            else:
+                                account = get_account_by_email(normalized_email)
+                                code = f"{secrets.randbelow(1_000_000):06d}"
+                                try:
+                                    if account:
+                                        send_verification_email(normalized_email, code, purpose="password reset")
+                                except Exception as error:
+                                    st.error(f"Could not send the reset email. Check your Brevo sender and API settings. {error}")
+                                else:
+                                    st.session_state.password_reset_pending = {
+                                        "email": normalized_email,
+                                        "user_id": account["id"] if account else None,
+                                        "code": code,
+                                        "expires_at": time.time() + 600,
+                                        "sent_at": time.time(),
+                                        "attempts": 0,
+                                        "send_count": 1,
+                                    }
+                                    st.info("If a matching account exists, a reset code has been sent. Check your inbox and spam folder.")
+                                    st.rerun()
 
             with register_tab:
                 st.caption("Verify your email address first, then create your account password.")

@@ -70,11 +70,11 @@
 **Say:** “This walkthrough follows one learner from practice to revision to a measured mock test.”
 
 ### Slide 9 — Limitations and next steps
-- Demo authentication; signup verification needs a configured email provider, and there is no password reset or production-grade admin setup.
+- Demo authentication; signup verification and password reset need a configured email provider, and the app has no production-grade admin setup.
 - SQLite data on cloud hosting may reset after an app restart.
 - The 60-question starter bank needs further expert review and role-specific expansion.
 - Active test state is not restored if the session is refreshed; local AI requires Ollama to be running on the same computer.
-- Next: durable cloud storage, password recovery and more curated questions.
+- Next: durable cloud storage, stronger admin provisioning and more curated questions.
 
 **Say:** “The next improvements would focus on content quality and multi-user support after validating the core learning flow.”
 
@@ -97,9 +97,10 @@
 15. **How do you calculate the score?** Correct answers divided by total questions, multiplied by 100 and rounded.
 16. **How does the timer work?** The app stores an end timestamp in session state and recalculates remaining seconds on refresh.
 17. **What are the limitations?** Signup needs Brevo setup and internet access; the free plan has a daily sending limit, the app is a demo, and cloud SQLite data may reset.
-18. **What would you improve next?** Add password reset, stronger admin provisioning, durable cloud storage and more curated interview questions.
+18. **What would you improve next?** Add stronger admin provisioning, durable cloud storage and more curated interview questions.
 19. **Why are answer choices unselected when a question opens?** Learners should choose their own answer; the stored answer key is only used after submission to check the response and calculate the score.
 20. **How does an existing database get the new questions?** A one-time versioned migration inserts missing starter questions while preserving existing accounts, bookmarks and attempts.
+21. **How does password reset work?** The user requests a six-digit code at the registered email, enters it before it expires, then the app saves a new salted PBKDF2 hash. The raw password is not stored.
 
 ## Likely demo questions
 

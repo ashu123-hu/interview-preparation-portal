@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).with_name("interview_prep.db")
+PASSWORD_HASH_ITERATIONS = 310_000
 
 SEED_QUESTIONS = [
     ("Python", "What is the main purpose of a Python dictionary?", "Store key-value pairs", "Store only ordered numbers", "Define a function", "Create a loop", "Store key-value pairs", "A dictionary maps unique keys to values for efficient lookup."),
@@ -161,6 +162,33 @@ def email_in_use(email):
         return db.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE", (email.strip(),)).fetchone() is not None
 
 
+def get_account_by_email(email):
+    """Return the account ID for a registered email address, if one exists."""
+    normalized_email = email.strip().lower()
+    with connect() as db:
+        row = db.execute(
+            "SELECT id FROM users WHERE email=? COLLATE NOCASE",
+            (normalized_email,),
+        ).fetchone()
+    return {"id": row["id"]} if row else None
+
+
+def update_user_password(user_id, password):
+    """Replace a user's password hash with a freshly salted PBKDF2 hash."""
+    if len(password) < 8:
+        raise ValueError("Password must contain at least 8 characters.")
+    salt = secrets.token_bytes(16)
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS
+    )
+    with connect() as db:
+        cursor = db.execute(
+            "UPDATE users SET salt=?, password_hash=? WHERE id=?",
+            (salt, password_hash, user_id),
+        )
+        return cursor.rowcount == 1
+
+
 def phone_in_use(phone):
     """Return whether a phone number is already linked to an account."""
     with connect() as db:
@@ -173,7 +201,7 @@ def register_user(username, password, email=None, phone=None):
     email = email.strip().lower() if email else None
     phone = phone.strip() if phone else None
     salt = secrets.token_bytes(16)
-    password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
+    password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS)
     try:
         with connect() as db:
             user_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -206,7 +234,7 @@ def authenticate_user(username, password):
         row = db.execute("SELECT id,username,salt,password_hash,role FROM users WHERE username=? COLLATE NOCASE", (username.strip(),)).fetchone()
     if row is None:
         return None
-    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), row["salt"], 310_000)
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), row["salt"], PASSWORD_HASH_ITERATIONS)
     if not hmac.compare_digest(candidate, row["password_hash"]):
         return None
     return {"id": row["id"], "username": row["username"], "role": row["role"]}
