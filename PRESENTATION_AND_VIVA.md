@@ -13,7 +13,7 @@
 **Say:** “The goal was to build a practical study tool with a small, achievable feature set for a one-to-two week project.”
 
 ### Slide 3 — Features and user flow
-- Search or filter MCQs by Python, SQL, OOP or Data Structures.
+- Search or filter 60 MCQs across Python, SQL, OOP, Data Structures, DBMS, Operating Systems, Computer Networks and Behavioral Interview.
 - Verify an email address at signup, then log in; the first account is admin and later accounts are students.
 - Create, view, edit and delete MCQs from Manage Questions.
 - Check answers and read short explanations.
@@ -38,6 +38,7 @@
 - `questions`: topic, question, four options, correct answer and explanation.
 - `bookmarks`: saved question IDs, linked to questions.
 - `attempts`: topic, score, correct count, total and completion time.
+- `app_migrations`: records one-time question-bank updates for existing databases.
 - `users`: username, verified email address, salted password hash, role and account creation time.
 
 **Say:** “The email address is saved after signup verification. User IDs keep bookmarks and scores separate, and the admin page uses CRUD for question records.”
@@ -71,7 +72,7 @@
 ### Slide 9 — Limitations and next steps
 - Demo authentication; signup verification needs a configured email provider, and there is no password reset or production-grade admin setup.
 - SQLite data on cloud hosting may reset after an app restart.
-- Small starter question bank; content can be expanded.
+- The 60-question starter bank needs further expert review and role-specific expansion.
 - Active test state is not restored if the session is refreshed; local AI requires Ollama to be running on the same computer.
 - Next: durable cloud storage, password recovery and more curated questions.
 
@@ -97,6 +98,8 @@
 16. **How does the timer work?** The app stores an end timestamp in session state and recalculates remaining seconds on refresh.
 17. **What are the limitations?** Signup needs Brevo setup and internet access; the free plan has a daily sending limit, the app is a demo, and cloud SQLite data may reset.
 18. **What would you improve next?** Add password reset, stronger admin provisioning, durable cloud storage and more curated interview questions.
+19. **Why are answer choices unselected when a question opens?** Learners should choose their own answer; the stored answer key is only used after submission to check the response and calculate the score.
+20. **How does an existing database get the new questions?** A one-time versioned migration inserts missing starter questions while preserving existing accounts, bookmarks and attempts.
 
 ## Likely demo questions
 

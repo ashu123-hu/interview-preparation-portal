@@ -3,6 +3,7 @@ from datetime import datetime
 import html
 import json
 import os
+import random
 import re
 import secrets
 import time
@@ -89,10 +90,15 @@ st.markdown(
     <style>
     :root { --ink:#172443; --muted:#71809b; --primary:#5368e8; --line:#e5eaf3; --surface:#fff; }
     html, body, [class*="css"] { font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    div[data-testid="stAppViewContainer"] { background:#f5f7fc; color:var(--ink); }
-    div[data-testid="stHeader"] { background:rgba(245,247,252,.86); }
+    div[data-testid="stAppViewContainer"] { position:relative; isolation:isolate; background:#f5f7fc; color:var(--ink); }
+    div[data-testid="stAppViewContainer"]::before { content:""; position:fixed; inset:-7vh -4vw; z-index:0; pointer-events:none; opacity:.78; background:radial-gradient(ellipse at 14% 20%,rgba(83,104,232,.14),transparent 28%),radial-gradient(ellipse at 86% 26%,rgba(57,203,183,.14),transparent 25%),radial-gradient(ellipse at 72% 88%,rgba(83,104,232,.10),transparent 24%),radial-gradient(circle,rgba(83,104,232,.22) 1px,transparent 1.6px); background-size:100% 100%,100% 100%,100% 100%,34px 34px; animation:portalDrift 28s ease-in-out infinite alternate; }
+    div[data-testid="stAppViewContainer"]::after { content:""; position:fixed; width:210px; height:210px; right:5vw; top:14vh; z-index:0; pointer-events:none; border:1px solid rgba(83,104,232,.12); border-radius:50%; box-shadow:0 0 0 22px rgba(83,104,232,.035),0 0 0 48px rgba(57,203,183,.025); animation:portalOrbit 19s ease-in-out infinite alternate; }
+    @keyframes portalDrift { from { transform:translate3d(-.7%,-.5%,0) scale(1); } to { transform:translate3d(.7%,.6%,0) scale(1.035); } }
+    @keyframes portalOrbit { from { transform:translate3d(0,-8px,0) rotate(-7deg); } to { transform:translate3d(-12px,13px,0) rotate(8deg); } }
+    div[data-testid="stMain"], section.main { position:relative; z-index:1; }
+    div[data-testid="stHeader"] { position:relative; z-index:2; background:rgba(245,247,252,.86); }
     .block-container { max-width:1240px; padding-top:2rem; padding-bottom:3rem; }
-    section[data-testid="stSidebar"] { background:#101c37; }
+    section[data-testid="stSidebar"] { position:relative; z-index:2; background:#101c37; }
     section[data-testid="stSidebar"] > div { background:linear-gradient(180deg,#142343 0%,#101a32 100%); }
     section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p,
     section[data-testid="stSidebar"] label,
@@ -142,6 +148,7 @@ st.markdown(
     .topic-chip { display:inline-block; padding:.28rem .65rem; border-radius:999px; background:#edf2ff; color:#4357c6; font-size:.76rem; font-weight:750; }
     .question-number { color:#98a3b8; font-size:.72rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
     .result-count { display:inline-block; padding:.42rem .75rem; margin:.3rem 0 .7rem; border-radius:999px; background:#e8f8f5; color:#167e72; font-size:.8rem; font-weight:750; }
+    @media (prefers-reduced-motion: reduce) { div[data-testid="stAppViewContainer"]::before, div[data-testid="stAppViewContainer"]::after { animation:none !important; } }
     @media (max-width:700px) { .block-container{padding-top:1rem;} .page-hero{padding:1.25rem 1.3rem;border-radius:18px;} .page-hero h1{font-size:1.4rem;} .hero-mark{width:2.8rem;height:2.8rem;} .auth-welcome h1{font-size:2rem;} }
     </style>
     """,
@@ -416,9 +423,12 @@ elif page == "Question Bank":
                 unsafe_allow_html=True,
             )
             st.markdown(f"#### {html.escape(q['question'])}")
-            choice = st.radio("Choose an answer", q["options"], key=f"practice_{q['id']}", label_visibility="collapsed")
+            choice = st.radio(
+                "Choose an answer", q["options"], index=None,
+                key=f"practice_v2_{q['id']}", label_visibility="collapsed",
+            )
             left, right = st.columns([1, 3])
-            if left.button("Check answer", key=f"check_{q['id']}"):
+            if left.button("Check answer", key=f"check_{q['id']}", disabled=choice is None):
                 if choice == q["answer"]:
                     st.success("Correct!")
                 else:
@@ -609,24 +619,25 @@ elif page == "Manage Questions":
 elif page == "Mock Test":
     page_header("TIMED PRACTICE", "Mock Test", "Choose your focus, set a pace and see how you perform.", "⏱️")
     all_questions = get_questions()
+    if not all_questions:
+        st.info("The question bank is empty. Ask the admin to add questions first.")
+        st.stop()
     topics = ["All topics"] + sorted({q["topic"] for q in all_questions})
     if "test_active" not in st.session_state:
         st.session_state.test_active = False
     if not st.session_state.test_active:
         topic = st.selectbox("Choose topic", topics)
-        count = st.slider("Number of questions", 3, min(10, len(all_questions)), min(5, len(all_questions)))
+        topic_pool = [q for q in all_questions if topic == "All topics" or q["topic"] == topic]
+        max_count = min(20, len(topic_pool))
+        count = st.slider("Number of questions", 1, max_count, min(10, max_count))
         minutes = st.slider("Time limit (minutes)", 1, 20, 5)
         if st.button("Start mock test", type="primary"):
-            pool = [q for q in all_questions if topic == "All topics" or q["topic"] == topic]
-            if len(pool) < count:
-                st.warning(f"Only {len(pool)} questions are available for this topic. Reduce the question count.")
-            else:
-                st.session_state.test_questions = pool[:count]
-                st.session_state.test_topic = topic
-                st.session_state.deadline = time.time() + minutes * 60
-                st.session_state.test_active = True
-                st.session_state.test_answers = {}
-                st.rerun()
+            st.session_state.test_questions = random.sample(topic_pool, count)
+            st.session_state.test_topic = topic
+            st.session_state.deadline = time.time() + minutes * 60
+            st.session_state.test_active = True
+            st.session_state.test_answers = {}
+            st.rerun()
     if st.session_state.test_active:
         st_autorefresh(interval=1000, key="mock_test_clock")
         remaining = max(0, int(st.session_state.deadline - time.time()))
@@ -636,12 +647,15 @@ elif page == "Mock Test":
         with st.form("mock_form"):
             for index, q in enumerate(st.session_state.test_questions, 1):
                 st.markdown(f"**{index}. {q['topic']}** — {q['question']}")
-                answer = st.radio("Select one", ["— Select —"] + q["options"], key=f"mock_{q['id']}", label_visibility="collapsed")
+                answer = st.radio(
+                    "Select one", q["options"], index=None,
+                    key=f"mock_v2_{q['id']}", label_visibility="collapsed",
+                )
                 st.session_state.test_answers[q["id"]] = answer
             submitted = st.form_submit_button("Submit test", type="primary")
         if submitted or remaining == 0:
             questions = st.session_state.test_questions
-            answers = {str(q["id"]): st.session_state.get(f"mock_{q['id']}", "— Select —") for q in questions}
+            answers = {str(q["id"]): st.session_state.get(f"mock_v2_{q['id']}") for q in questions}
             correct = sum(answers[str(q["id"])] == q["answer"] for q in questions)
             score = round(correct * 100 / len(questions))
             add_attempt(st.session_state.test_topic, score, correct, len(questions), datetime.now().isoformat(timespec="seconds"), user["id"])
@@ -653,4 +667,6 @@ elif page == "Mock Test":
         st.success(f"Score: {score}% ({correct}/{total})")
         for q in questions:
             chosen = answers[str(q["id"])]
-            st.write(f"**{q['question']}** — {'Correct' if chosen == q['answer'] else 'Review'}; answer: {q['answer']}. {q['explanation']}")
+            status = "Correct" if chosen == q["answer"] else "Unanswered" if chosen is None else "Review"
+            response = chosen if chosen is not None else "No answer selected"
+            st.write(f"**{q['question']}** — {status}; your answer: {response}; correct answer: {q['answer']}. {q['explanation']}")

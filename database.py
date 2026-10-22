@@ -28,6 +28,46 @@ SEED_QUESTIONS = [
     ("Data Structures", "Average lookup in a well-sized hash table is typically?", "O(1)", "O(n)", "O(n log n)", "O(n²)", "O(1)", "Hashing provides constant average-time lookup, though collisions can worsen it."),
     ("Data Structures", "Which traversal visits a binary search tree in sorted order?", "In-order", "Pre-order", "Post-order", "Level-order", "In-order", "For a binary search tree, in-order traversal visits left, node, then right."),
     ("Data Structures", "What is the time complexity of binary search on sorted data?", "O(log n)", "O(n)", "O(n²)", "O(1) always", "O(log n)", "Each comparison removes about half of the remaining search range."),
+    ("Python", "Why should a mutable list usually not be used as a default argument?", "The same list can be reused across calls", "Lists cannot be function arguments", "It makes the function asynchronous", "Python copies the list on every call", "The same list can be reused across calls", "Default argument objects are created once when the function is defined, so a mutated list can carry state between calls."),
+    ("Python", "What is the difference between == and is?", "== compares values; is checks object identity", "== checks identity; is compares values", "They always mean the same thing", "is compares object types only", "== compares values; is checks object identity", "Use == for value equality and is when checking whether two references point to the same object."),
+    ("Python", "What does yield do inside a function?", "Produces a value from a generator and pauses it", "Ends the Python program", "Creates a class", "Sorts returned values", "Produces a value from a generator and pauses it", "A generator resumes from where it paused when the next value is requested."),
+    ("Python", "What does dictionary.get(key) return when the key is missing and no default is supplied?", "None", "False", "An empty list", "It always raises KeyError", "None", "dict.get returns None for a missing key unless a different default value is provided."),
+    ("Python", "Which expression creates a new list containing the squares of numbers in values?", "[x ** 2 for x in values]", "{x ** 2 for x in values}", "(x ** 2 for x in values)", "values.square()", "[x ** 2 for x in values]", "A list comprehension evaluates an expression for each item and collects the results into a list."),
+    ("Python", "What is a key benefit of using with open(...) to read a file?", "The file is closed automatically", "The file is always encrypted", "The file is loaded as a database", "The file can never raise an error", "The file is closed automatically", "A context manager closes the file when its block exits, including when an exception occurs."),
+    ("SQL", "What does COUNT(*) return in a query?", "The number of rows in the result", "The number of columns in the table", "The largest numeric value", "The number of unique tables", "The number of rows in the result", "COUNT(*) counts result rows, including rows where individual columns contain NULL."),
+    ("SQL", "What is GROUP BY commonly used for?", "Grouping rows so aggregate values can be calculated per group", "Sorting every column alphabetically", "Deleting duplicate rows", "Renaming a table", "Grouping rows so aggregate values can be calculated per group", "GROUP BY forms groups of rows, often for aggregates such as COUNT, SUM, or AVG."),
+    ("SQL", "Which clause filters groups after GROUP BY has been applied?", "HAVING", "WHERE", "ORDER BY", "FROM", "HAVING", "HAVING filters grouped results; WHERE filters individual rows before grouping."),
+    ("SQL", "What does a LEFT JOIN keep when the right table has no matching row?", "The left-table row, with NULL values for right-table columns", "Only matching rows from both tables", "Only unmatched rows from the right table", "It deletes the left-table row", "The left-table row, with NULL values for right-table columns", "A LEFT JOIN preserves every row from the left input and fills unmatched right-side columns with NULL."),
+    ("SQL", "How should a query test whether a column has no value (NULL)?", "column_name IS NULL", "column_name = NULL", "column_name == None", "column_name IS EMPTY", "column_name IS NULL", "SQL uses IS NULL and IS NOT NULL because NULL represents an unknown or missing value."),
+    ("SQL", "What does COMMIT do in a database transaction?", "Saves the transaction's changes", "Reverses the transaction's changes", "Starts a new database", "Removes a table definition", "Saves the transaction's changes", "COMMIT makes the changes in the current transaction permanent."),
+    ("OOP", "What does abstraction help a class do?", "Expose essential behavior while hiding implementation details", "Make every field globally accessible", "Prevent objects from having methods", "Convert methods into database tables", "Expose essential behavior while hiding implementation details", "Abstraction presents a useful interface without requiring callers to know internal details."),
+    ("OOP", "What is method overriding?", "A subclass provides its own version of an inherited method", "A method is called twice with the same arguments", "A method is converted into a variable", "A parent class deletes a child class", "A subclass provides its own version of an inherited method", "Overriding lets a subclass specialize behavior defined by its parent class."),
+    ("OOP", "Where is a class variable usually shared?", "Across instances of that class", "Only inside one method call", "Only by unrelated classes", "Only while importing the module", "Across instances of that class", "A class variable belongs to the class and is shared unless an instance shadows it."),
+    ("OOP", "What is a common use of super() in a subclass?", "Call a method from the parent class", "Create an unrelated global function", "Delete the parent class", "Turn an instance method into a property", "Call a method from the parent class", "super() provides access to the next class in the method resolution order, often for parent initialization."),
+    ("Data Structures", "Which structure is commonly used to manage the frontier in breadth-first search?", "Queue", "Stack", "Sorted array", "Hash function", "Queue", "Breadth-first search processes nodes in the order they are discovered, which a queue supports."),
+    ("Data Structures", "What is the time complexity of inserting a node at the head of a singly linked list?", "O(1)", "O(log n)", "O(n)", "O(n²)", "O(1)", "Head insertion updates a fixed number of links and does not depend on the list length."),
+    ("Data Structures", "In a min-heap, which value is at the root?", "The smallest value", "The largest value", "The most recently inserted value in every case", "The median value in every case", "The smallest value", "A min-heap keeps each parent no greater than its children, so the minimum is at the root."),
+    ("Data Structures", "What is the average time complexity of membership lookup in a hash set?", "O(1)", "O(log n)", "O(n log n)", "O(n²)", "O(1)", "Hash sets provide average constant-time membership checks, though worst-case behavior can be slower."),
+    ("DBMS", "Why is normalization used in relational database design?", "To reduce unnecessary duplication and update anomalies", "To encrypt every column", "To guarantee queries never need joins", "To make all tables contain the same columns", "To reduce unnecessary duplication and update anomalies", "Normalization organizes related facts to reduce redundancy and inconsistent updates."),
+    ("DBMS", "What does atomicity in ACID mean?", "A transaction happens completely or not at all", "Transactions always run in alphabetical order", "Every table has exactly one column", "Data is stored only in memory", "A transaction happens completely or not at all", "Atomicity prevents a transaction from being applied only partially."),
+    ("DBMS", "What is a common purpose of a database index?", "Speed up lookups on selected columns", "Replace all table data", "Guarantee that every query is faster", "Automatically encrypt a database", "Speed up lookups on selected columns", "Indexes can speed up searches and joins, while using storage and adding work to writes."),
+    ("DBMS", "What is a database transaction?", "A logical unit of work that can be committed or rolled back", "A saved copy of a user interface", "A special type of primary key", "A command that only sorts data", "A logical unit of work that can be committed or rolled back", "Transactions group related database operations so they can succeed or be undone together."),
+    ("DBMS", "Which value best follows first normal form (1NF)?", "One atomic value in each table cell", "A comma-separated list of phone numbers in one cell", "A repeating group of columns for each month", "A table with no key", "One atomic value in each table cell", "First normal form requires each field to contain a single value rather than a repeating list."),
+    ("Operating Systems", "What is a process?", "A program in execution with its own managed resources", "A variable stored in a spreadsheet", "A file format for source code", "A network cable", "A program in execution with its own managed resources", "The operating system manages a running program as a process with resources such as memory."),
+    ("Operating Systems", "How do threads in the same process commonly relate to memory?", "They share the process's memory space", "Each thread always has a separate computer", "Threads cannot access program data", "Every thread has a separate operating system", "They share the process's memory space", "Threads share process resources such as memory, while each thread has its own execution state and stack."),
+    ("Operating Systems", "What is a deadlock?", "Tasks wait indefinitely for resources held by one another", "A computer has successfully shut down", "A process finishes before it starts", "A file is compressed", "Tasks wait indefinitely for resources held by one another", "In deadlock, a set of tasks cannot proceed because each waits for a resource held by another."),
+    ("Operating Systems", "What does virtual memory paging do?", "Maps fixed-size virtual memory pages to physical frames", "Copies every file to the processor", "Changes a process into a thread", "Deletes unused database rows", "Maps fixed-size virtual memory pages to physical frames", "Paging divides virtual memory into pages and physical memory into frames, managed by the operating system."),
+    ("Operating Systems", "What is a context switch?", "The CPU changes from running one task to another", "A program changes its source-code language", "A disk is formatted", "A database commits a transaction", "The CPU changes from running one task to another", "During a context switch, the operating system saves one task's state and restores another's."),
+    ("Computer Networks", "What does DNS primarily do?", "Maps domain names to IP addresses", "Encrypts files on a computer", "Assigns table names in SQL", "Measures processor speed", "Maps domain names to IP addresses", "DNS helps clients find the IP address associated with a domain name."),
+    ("Computer Networks", "Which statement best describes TCP?", "It provides a reliable, ordered byte stream", "It guarantees the shortest route for every packet", "It is only used for local files", "It has no connection or delivery mechanisms", "It provides a reliable, ordered byte stream", "TCP provides ordered delivery and retransmission for data sent over an IP network."),
+    ("Computer Networks", "Which statement about UDP is correct?", "It sends datagrams without guaranteeing delivery or order", "It always retransmits every lost packet", "It is a database query language", "It requires a connection handshake for every message", "It sends datagrams without guaranteeing delivery or order", "UDP is connectionless and has lower protocol overhead, but applications handle reliability if needed."),
+    ("Computer Networks", "What does HTTPS add to HTTP?", "TLS protection for the connection", "A relational database", "A faster CPU scheduler", "A guarantee that the website is trustworthy", "TLS protection for the connection", "HTTPS uses TLS to protect data in transit and authenticate the server; it does not guarantee a site is honest."),
+    ("Computer Networks", "What does HTTP status code 404 usually mean?", "The requested resource was not found", "The request succeeded", "The server is permanently unavailable", "The user has been authenticated", "The requested resource was not found", "A 404 response indicates that the server could not find the requested resource."),
+    ("Behavioral Interview", "What does the STAR method help structure?", "Situation, Task, Action, Result", "Skills, Tools, Application, Review", "Summary, Timeline, Aim, Resume", "Strength, Training, Ability, Role", "Situation, Task, Action, Result", "STAR gives a clear structure for describing the context, responsibility, actions, and outcome of an example."),
+    ("Behavioral Interview", "When asked about a challenge, what makes a strong interview response?", "A specific example, your actions, and what you learned", "Blaming another person without context", "Claiming you have never faced a challenge", "Giving unrelated technical definitions", "A specific example, your actions, and what you learned", "A concise real example shows how you respond and reflect on an outcome."),
+    ("Behavioral Interview", "If you disagree with a teammate, what is usually the best first step?", "Listen to their reasoning and discuss evidence respectfully", "Ignore them and tell the manager immediately", "Interrupt until they accept your view", "Stop contributing to the project", "Listen to their reasoning and discuss evidence respectfully", "Respectful discussion and shared evidence help resolve disagreements and keep focus on the work."),
+    ("Behavioral Interview", "What is a useful way to answer 'Tell me about yourself'?", "Give a brief role-relevant summary of your background and goals", "Recite every personal detail from childhood", "Read your entire resume word for word", "Ask the interviewer to answer first", "Give a brief role-relevant summary of your background and goals", "A focused introduction connects relevant experience, strengths, and interest in the role."),
+    ("Behavioral Interview", "What is a good question to ask at the end of an interview?", "What would success in this role look like in the first few months?", "How soon can I avoid doing the main tasks?", "Can I skip the required work?", "Why did you ask me so many questions?", "What would success in this role look like in the first few months?", "This question shows interest in expectations and helps you understand how performance is evaluated."),
 ]
 
 
@@ -65,6 +105,10 @@ def init_db():
                 correct INTEGER NOT NULL, total INTEGER NOT NULL, completed_at TEXT NOT NULL,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS app_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
         if "email" not in user_columns:
@@ -84,9 +128,25 @@ def init_db():
         attempt_columns = {row[1] for row in db.execute("PRAGMA table_info(attempts)")}
         if "user_id" not in attempt_columns:
             db.execute("ALTER TABLE attempts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
-        count = db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
-        if count == 0:
-            db.executemany("INSERT INTO questions(topic,question,option_a,option_b,option_c,option_d,answer,explanation) VALUES(?,?,?,?,?,?,?,?)", SEED_QUESTIONS)
+        seed_migration = "question_bank_v2"
+        already_seeded = db.execute(
+            "SELECT 1 FROM app_migrations WHERE name=?", (seed_migration,)
+        ).fetchone()
+        if not already_seeded:
+            existing = {
+                (row["topic"], row["question"])
+                for row in db.execute("SELECT topic, question FROM questions")
+            }
+            missing = [
+                question for question in SEED_QUESTIONS
+                if (question[0], question[1]) not in existing
+            ]
+            if missing:
+                db.executemany(
+                    "INSERT INTO questions(topic,question,option_a,option_b,option_c,option_d,answer,explanation) VALUES(?,?,?,?,?,?,?,?)",
+                    missing,
+                )
+            db.execute("INSERT INTO app_migrations(name) VALUES(?)", (seed_migration,))
 
 
 def username_exists(username):
