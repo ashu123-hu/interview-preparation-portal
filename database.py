@@ -1,4 +1,7 @@
-"""SQLite access and starter interview question bank."""
+"""SQLite access, account helpers, and the starter interview question bank."""
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from pathlib import Path
 
@@ -38,6 +41,12 @@ def connect():
 def init_db():
     with connect() as db:
         db.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                salt BLOB NOT NULL, password_hash BLOB NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('admin','student')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS questions (
                 id INTEGER PRIMARY KEY, topic TEXT NOT NULL, question TEXT NOT NULL,
                 option_a TEXT NOT NULL, option_b TEXT NOT NULL,
@@ -45,16 +54,67 @@ def init_db():
                 answer TEXT NOT NULL, explanation TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS bookmarks (
-                question_id INTEGER PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+                PRIMARY KEY(user_id, question_id)
             );
             CREATE TABLE IF NOT EXISTS attempts (
                 id INTEGER PRIMARY KEY, topic TEXT NOT NULL, score INTEGER NOT NULL,
-                correct INTEGER NOT NULL, total INTEGER NOT NULL, completed_at TEXT NOT NULL
+                correct INTEGER NOT NULL, total INTEGER NOT NULL, completed_at TEXT NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
             );
         """)
+        bookmark_columns = {row[1] for row in db.execute("PRAGMA table_info(bookmarks)")}
+        if "user_id" not in bookmark_columns:
+            db.execute("ALTER TABLE bookmarks RENAME TO bookmarks_legacy")
+            db.execute("""CREATE TABLE bookmarks (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+                PRIMARY KEY(user_id, question_id)
+            )""")
+        attempt_columns = {row[1] for row in db.execute("PRAGMA table_info(attempts)")}
+        if "user_id" not in attempt_columns:
+            db.execute("ALTER TABLE attempts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
         count = db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
         if count == 0:
             db.executemany("INSERT INTO questions(topic,question,option_a,option_b,option_c,option_d,answer,explanation) VALUES(?,?,?,?,?,?,?,?)", SEED_QUESTIONS)
+
+
+def register_user(username, password):
+    """Create an account; the first registered account is the demo admin."""
+    username = username.strip()
+    salt = secrets.token_bytes(16)
+    password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
+    try:
+        with connect() as db:
+            user_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            role = "admin" if user_count == 0 else "student"
+            cursor = db.execute(
+                "INSERT INTO users(username,salt,password_hash,role) VALUES(?,?,?,?)",
+                (username, salt, password_hash, role),
+            )
+            user_id = cursor.lastrowid
+            legacy = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bookmarks_legacy'").fetchone()
+            if role == "admin":
+                if legacy:
+                    db.execute("INSERT OR IGNORE INTO bookmarks(user_id,question_id) SELECT ?,question_id FROM bookmarks_legacy", (user_id,))
+                    db.execute("DROP TABLE bookmarks_legacy")
+                db.execute("UPDATE attempts SET user_id=? WHERE user_id IS NULL", (user_id,))
+            return {"id": user_id, "username": username, "role": role}, None
+    except sqlite3.IntegrityError:
+        return None, "That username is already taken."
+
+
+def authenticate_user(username, password):
+    """Return the account for valid credentials, otherwise None."""
+    with connect() as db:
+        row = db.execute("SELECT id,username,salt,password_hash,role FROM users WHERE username=? COLLATE NOCASE", (username.strip(),)).fetchone()
+    if row is None:
+        return None
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), row["salt"], 310_000)
+    if not hmac.compare_digest(candidate, row["password_hash"]):
+        return None
+    return {"id": row["id"], "username": row["username"], "role": row["role"]}
 
 
 def get_questions():
@@ -65,30 +125,55 @@ def get_questions():
              "answer": r["answer"], "explanation": r["explanation"]} for r in rows]
 
 
-def get_bookmarks():
+def create_question(topic, question, options, answer, explanation):
+    """Create one MCQ and return its new database ID."""
     with connect() as db:
-        return {r[0] for r in db.execute("SELECT question_id FROM bookmarks")}
+        cursor = db.execute(
+            "INSERT INTO questions(topic,question,option_a,option_b,option_c,option_d,answer,explanation) VALUES(?,?,?,?,?,?,?,?)",
+            (topic.strip(), question.strip(), *[option.strip() for option in options], answer.strip(), explanation.strip()),
+        )
+        return cursor.lastrowid
 
 
-def set_bookmark(question_id, saved):
+def update_question(question_id, topic, question, options, answer, explanation):
+    """Update an existing MCQ."""
+    with connect() as db:
+        db.execute(
+            "UPDATE questions SET topic=?, question=?, option_a=?, option_b=?, option_c=?, option_d=?, answer=?, explanation=? WHERE id=?",
+            (topic.strip(), question.strip(), *[option.strip() for option in options], answer.strip(), explanation.strip(), question_id),
+        )
+
+
+def delete_question(question_id):
+    """Delete one MCQ; linked bookmarks are removed by the foreign key."""
+    with connect() as db:
+        db.execute("DELETE FROM questions WHERE id=?", (question_id,))
+
+
+def get_bookmarks(user_id):
+    with connect() as db:
+        return {r[0] for r in db.execute("SELECT question_id FROM bookmarks WHERE user_id=?", (user_id,))}
+
+
+def set_bookmark(question_id, saved, user_id):
     with connect() as db:
         if saved:
-            db.execute("INSERT OR IGNORE INTO bookmarks(question_id) VALUES(?)", (question_id,))
+            db.execute("INSERT OR IGNORE INTO bookmarks(user_id,question_id) VALUES(?,?)", (user_id, question_id))
         else:
-            db.execute("DELETE FROM bookmarks WHERE question_id=?", (question_id,))
+            db.execute("DELETE FROM bookmarks WHERE user_id=? AND question_id=?", (user_id, question_id))
 
 
-def add_attempt(topic, score, correct, total, completed_at):
+def add_attempt(topic, score, correct, total, completed_at, user_id):
     with connect() as db:
-        db.execute("INSERT INTO attempts(topic,score,correct,total,completed_at) VALUES(?,?,?,?,?)", (topic, score, correct, total, completed_at))
+        db.execute("INSERT INTO attempts(topic,score,correct,total,completed_at,user_id) VALUES(?,?,?,?,?,?)", (topic, score, correct, total, completed_at, user_id))
 
 
-def get_dashboard():
+def get_dashboard(user_id):
     with connect() as db:
         question_count = db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
-        attempt_count, average = db.execute("SELECT COUNT(*), COALESCE(AVG(score),0) FROM attempts").fetchone()
-        bookmark_count = db.execute("SELECT COUNT(*) FROM bookmarks").fetchone()[0]
-        recent = db.execute("SELECT completed_at, topic, score, correct, total FROM attempts ORDER BY id DESC LIMIT 20").fetchall()
+        attempt_count, average = db.execute("SELECT COUNT(*), COALESCE(AVG(score),0) FROM attempts WHERE user_id=?", (user_id,)).fetchone()
+        bookmark_count = db.execute("SELECT COUNT(*) FROM bookmarks WHERE user_id=?", (user_id,)).fetchone()[0]
+        recent = db.execute("SELECT completed_at, topic, score, correct, total FROM attempts WHERE user_id=? ORDER BY id DESC LIMIT 20", (user_id,)).fetchall()
     return {"question_count": question_count, "attempt_count": attempt_count,
             "average_score": average, "bookmark_count": bookmark_count,
             "recent": [tuple(r) for r in reversed(recent)]}
