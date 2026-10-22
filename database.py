@@ -43,6 +43,8 @@ def init_db():
         db.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                email TEXT,
+                phone TEXT,
                 salt BLOB NOT NULL, password_hash BLOB NOT NULL,
                 role TEXT NOT NULL CHECK(role IN ('admin','student')),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -64,6 +66,13 @@ def init_db():
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
             );
         """)
+        user_columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+        if "email" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if "phone" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL AND email <> ''")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> ''")
         bookmark_columns = {row[1] for row in db.execute("PRAGMA table_info(bookmarks)")}
         if "user_id" not in bookmark_columns:
             db.execute("ALTER TABLE bookmarks RENAME TO bookmarks_legacy")
@@ -80,9 +89,29 @@ def init_db():
             db.executemany("INSERT INTO questions(topic,question,option_a,option_b,option_c,option_d,answer,explanation) VALUES(?,?,?,?,?,?,?,?)", SEED_QUESTIONS)
 
 
-def register_user(username, password):
+def username_exists(username):
+    """Return whether a username is already registered."""
+    with connect() as db:
+        return db.execute("SELECT 1 FROM users WHERE username=? COLLATE NOCASE", (username.strip(),)).fetchone() is not None
+
+
+def email_in_use(email):
+    """Return whether an email address is already linked to an account."""
+    with connect() as db:
+        return db.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE", (email.strip(),)).fetchone() is not None
+
+
+def phone_in_use(phone):
+    """Return whether a phone number is already linked to an account."""
+    with connect() as db:
+        return db.execute("SELECT 1 FROM users WHERE phone=?", (phone.strip(),)).fetchone() is not None
+
+
+def register_user(username, password, email=None, phone=None):
     """Create an account; the first registered account is the demo admin."""
     username = username.strip()
+    email = email.strip().lower() if email else None
+    phone = phone.strip() if phone else None
     salt = secrets.token_bytes(16)
     password_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
     try:
@@ -90,8 +119,8 @@ def register_user(username, password):
             user_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
             role = "admin" if user_count == 0 else "student"
             cursor = db.execute(
-                "INSERT INTO users(username,salt,password_hash,role) VALUES(?,?,?,?)",
-                (username, salt, password_hash, role),
+                "INSERT INTO users(username,email,phone,salt,password_hash,role) VALUES(?,?,?,?,?,?)",
+                (username, email, phone, salt, password_hash, role),
             )
             user_id = cursor.lastrowid
             legacy = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bookmarks_legacy'").fetchone()
@@ -100,9 +129,15 @@ def register_user(username, password):
                     db.execute("INSERT OR IGNORE INTO bookmarks(user_id,question_id) SELECT ?,question_id FROM bookmarks_legacy", (user_id,))
                     db.execute("DROP TABLE bookmarks_legacy")
                 db.execute("UPDATE attempts SET user_id=? WHERE user_id IS NULL", (user_id,))
-            return {"id": user_id, "username": username, "role": role}, None
+            return {"id": user_id, "username": username, "email": email, "phone": phone, "role": role}, None
     except sqlite3.IntegrityError:
-        return None, "That username is already taken."
+        if username_exists(username):
+            return None, "That username is already taken."
+        if email and email_in_use(email):
+            return None, "That email address is already linked to an account."
+        if phone and phone_in_use(phone):
+            return None, "That mobile number is already linked to an account."
+        return None, "Could not create the account. Check the details and try again."
 
 
 def authenticate_user(username, password):

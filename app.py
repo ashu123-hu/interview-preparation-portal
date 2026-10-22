@@ -3,8 +3,10 @@ from datetime import datetime
 import html
 import json
 import os
+import re
+import secrets
 import time
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -13,9 +15,73 @@ from streamlit_autorefresh import st_autorefresh
 
 from database import (
     add_attempt, authenticate_user, create_question, delete_question,
-    get_bookmarks, get_dashboard, get_questions, init_db, register_user,
-    set_bookmark, update_question,
+    email_in_use, get_bookmarks, get_dashboard, get_questions, init_db,
+    register_user, set_bookmark, update_question, username_exists,
 )
+
+
+def setting(name, default=""):
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return value or os.environ.get(name, default)
+
+
+def send_verification_email(recipient, code):
+    """Send a short-lived signup code using Brevo's transactional email API."""
+    api_key = setting("BREVO_API_KEY").strip()
+    sender_email = setting("BREVO_SENDER_EMAIL").strip()
+    sender_name = setting("BREVO_SENDER_NAME", "Interview Prep Portal").strip()
+    if not api_key or not sender_email:
+        raise ValueError(
+            "Email verification is not configured. Add BREVO_API_KEY and "
+            "BREVO_SENDER_EMAIL to .streamlit/secrets.toml."
+        )
+
+    body = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": recipient}],
+        "subject": "Your Interview Prep Portal verification code",
+        "textContent": (
+            f"Your signup verification code is {code}. It expires in 10 minutes. "
+            "If you did not request this code, you can ignore this email."
+        ),
+        "htmlContent": (
+            "<p>Use this code to finish creating your Interview Prep Portal account:</p>"
+            f"<p style=\"font-size:28px;font-weight:bold;letter-spacing:6px\">{code}</p>"
+            "<p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>"
+        ),
+    }
+    request = Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=25) as response:
+            response.read()
+    except HTTPError as error:
+        try:
+            details = json.loads(error.read().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            details = {}
+        message = details.get("message", "The email provider rejected the request.")
+        raise RuntimeError(f"Brevo could not send the email: {message}") from None
+    except URLError as error:
+        raise RuntimeError(f"Could not connect to the email service: {error.reason}") from None
+
+
+def masked_email(email):
+    local_part, _, domain = email.partition("@")
+    visible = local_part[:1] if local_part else ""
+    return f"{visible}{'•' * max(2, len(local_part) - 1)}@{domain}"
+
 
 st.set_page_config(page_title="Interview Prep Portal", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 st.markdown(
@@ -135,26 +201,133 @@ if "user" not in st.session_state:
                     st.error("Username or password is incorrect.")
 
             with register_tab:
-                with st.form("register_form"):
-                    new_name = st.text_input("Choose a username", key="register_username")
-                    new_password = st.text_input("Choose a password (at least 8 characters)", type="password", key="register_password")
-                    confirm_password = st.text_input("Confirm password", type="password", key="confirm_password")
-                    register_clicked = st.form_submit_button("Create my account", type="primary", use_container_width=True)
-                if register_clicked:
-                    if len(new_name.strip()) < 3 or not new_name.strip().replace("_", "").isalnum():
-                        st.error("Username must be at least 3 characters and use only letters, numbers or underscores.")
-                    elif len(new_password) < 8:
-                        st.error("Choose a password with at least 8 characters.")
-                    elif new_password != confirm_password:
-                        st.error("The passwords do not match.")
-                    else:
-                        account, error = register_user(new_name, new_password)
-                        if error:
-                            st.error(error)
+                st.caption("Verify your email address first, then create your account password.")
+                pending = st.session_state.get("email_signup_pending")
+                verified = st.session_state.get("email_signup_verified")
+                now = time.time()
+                if pending and now >= pending["expires_at"]:
+                    st.session_state.pop("email_signup_pending", None)
+                    pending = None
+                    st.warning("That verification request expired. Start signup again to request a new code.")
+                if verified and now - verified["verified_at"] > 600:
+                    st.session_state.pop("email_signup_verified", None)
+                    st.session_state.pop("verified_register_password", None)
+                    st.session_state.pop("verified_confirm_password", None)
+                    verified = None
+                    st.warning("Email verification timed out. Please start signup again.")
+
+                if verified:
+                    st.success(f"Email verified: {masked_email(verified['email'])}")
+                    with st.form("finish_signup_form"):
+                        new_password = st.text_input("Choose a password (at least 8 characters)", type="password", key="verified_register_password")
+                        confirm_password = st.text_input("Confirm password", type="password", key="verified_confirm_password")
+                        register_clicked = st.form_submit_button("Create my account", type="primary", use_container_width=True)
+                    if register_clicked:
+                        if len(new_password) < 8:
+                            st.error("Choose a password with at least 8 characters.")
+                        elif new_password != confirm_password:
+                            st.error("The passwords do not match.")
                         else:
-                            st.session_state.user = account
-                            st.success(f"Account created. Your role is {account['role']}.")
-                            st.rerun()
+                            account, error = register_user(verified["username"], new_password, email=verified["email"])
+                            if error:
+                                st.error(error)
+                            else:
+                                st.session_state.pop("email_signup_verified", None)
+                                st.session_state.pop("verified_register_password", None)
+                                st.session_state.pop("verified_confirm_password", None)
+                                st.session_state.user = account
+                                st.success(f"Account created. Your role is {account['role']}.")
+                                st.rerun()
+                    if st.button("Start over", key="cancel_verified_signup"):
+                        st.session_state.pop("email_signup_verified", None)
+                        st.session_state.pop("verified_register_password", None)
+                        st.session_state.pop("verified_confirm_password", None)
+                        st.rerun()
+
+                elif pending:
+                    st.info(f"Enter the 6-digit code sent to {masked_email(pending['email'])}. It expires in about 10 minutes.")
+                    with st.form("verify_signup_email_form"):
+                        entered_code = st.text_input("Email verification code", max_chars=6, placeholder="000000")
+                        verify_clicked = st.form_submit_button("Verify email address", type="primary", use_container_width=True)
+                    if verify_clicked:
+                        if not entered_code.isdigit() or len(entered_code) != 6:
+                            st.error("Enter the 6-digit code from your email.")
+                        elif pending["attempts"] >= 5:
+                            st.session_state.pop("email_signup_pending", None)
+                            st.error("Too many incorrect attempts. Start signup again to request a new code.")
+                        else:
+                            pending["attempts"] += 1
+                            st.session_state.email_signup_pending = pending
+                            if secrets.compare_digest(entered_code, pending["code"]):
+                                st.session_state.email_signup_verified = {
+                                    "username": pending["username"],
+                                    "email": pending["email"],
+                                    "verified_at": time.time(),
+                                }
+                                st.session_state.pop("email_signup_pending", None)
+                                st.rerun()
+                            else:
+                                remaining = 5 - pending["attempts"]
+                                st.error(f"That code did not match. {remaining} attempt(s) remaining.")
+
+                    cooldown = 60 - int(time.time() - pending["sent_at"])
+                    resend_limit_reached = pending["send_count"] >= 4
+                    if st.button("Resend code", disabled=cooldown > 0 or resend_limit_reached, key="resend_signup_email_code"):
+                        new_code = f"{secrets.randbelow(1_000_000):06d}"
+                        try:
+                            send_verification_email(pending["email"], new_code)
+                        except Exception as error:
+                            st.error(f"Could not resend the verification email. Check your Brevo sender and API settings. {error}")
+                        else:
+                            pending.update({
+                                "code": new_code,
+                                "expires_at": time.time() + 600,
+                                "sent_at": time.time(),
+                                "attempts": 0,
+                                "send_count": pending["send_count"] + 1,
+                            })
+                            st.session_state.email_signup_pending = pending
+                            st.success("A new verification email has been sent.")
+                    if cooldown > 0 and not resend_limit_reached:
+                        st.caption(f"You can request another code in {cooldown} seconds.")
+                    elif resend_limit_reached:
+                        st.caption("You have reached the resend limit. Start over to try again.")
+                    if st.button("Use a different email address", key="cancel_pending_email_signup"):
+                        st.session_state.pop("email_signup_pending", None)
+                        st.rerun()
+
+                else:
+                    with st.form("request_signup_email_code_form"):
+                        new_name = st.text_input("Choose a username", key="signup_username")
+                        new_email = st.text_input("Email address", key="signup_email", placeholder="you@example.com")
+                        request_code_clicked = st.form_submit_button("Send verification code", type="primary", use_container_width=True)
+                    if request_code_clicked:
+                        normalized_email = new_email.strip().lower()
+                        if len(new_name.strip()) < 3 or not new_name.strip().replace("_", "").isalnum():
+                            st.error("Username must be at least 3 characters and use only letters, numbers or underscores.")
+                        elif not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized_email):
+                            st.error("Enter a valid email address.")
+                        elif username_exists(new_name):
+                            st.error("That username is already taken.")
+                        elif email_in_use(normalized_email):
+                            st.error("That email address is already linked to an account.")
+                        else:
+                            code = f"{secrets.randbelow(1_000_000):06d}"
+                            try:
+                                send_verification_email(normalized_email, code)
+                            except Exception as error:
+                                st.error(f"Could not send the verification email. Check your Brevo sender and API settings. {error}")
+                            else:
+                                st.session_state.email_signup_pending = {
+                                    "username": new_name.strip(),
+                                    "email": normalized_email,
+                                    "code": code,
+                                    "expires_at": time.time() + 600,
+                                    "sent_at": time.time(),
+                                    "attempts": 0,
+                                    "send_count": 1,
+                                }
+                                st.rerun()
             st.caption("The first account created becomes the demo admin. Other accounts are students.")
     st.stop()
 
