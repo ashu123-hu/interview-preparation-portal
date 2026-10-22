@@ -26,7 +26,13 @@ py -m venv .venv
 .venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-For the AI coach, make a `.streamlit` folder, copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml`, and replace the example value with your OpenAI API key. Never upload `secrets.toml` to GitHub. On Streamlit Community Cloud, add the same settings in the app's Secrets settings.
+For free local AI feedback, install [Ollama for Windows](https://ollama.com/download/windows), then open PowerShell and run:
+
+```powershell
+ollama run gemma3:1b
+```
+
+The model downloads the first time. Keep the Ollama app running while you use the AI Interview Coach. The portal connects to Ollama at `http://localhost:11434` and uses `gemma3:1b` by default, so no API key or `.streamlit/secrets.toml` is needed. To select another installed Ollama model or server URL, set `OLLAMA_MODEL` or `OLLAMA_BASE_URL` in Streamlit secrets or environment variables. This local setup works when the portal and Ollama run on the same computer; a cloud-hosted portal cannot reach Ollama on your personal PC.
 
 Open the local URL printed by Streamlit, usually `http://localhost:8501`. The SQLite file `interview_prep.db` is created next to `app.py` on first launch and is not required in source control; the starter questions are inserted automatically when the database is empty.
 
@@ -48,12 +54,11 @@ To reset the demo data, stop the app and delete `interview_prep.db`; it will be 
 - The database has `users`, `questions`, `bookmarks` and `attempts` tables. Bookmarks and attempts are associated with a user; bookmarks also reference questions through a foreign key.
 - The Manage Questions page implements question CRUD: add MCQs, list them, edit their fields, and delete them. Deleting a question also removes linked bookmarks through the foreign-key cascade.
 - The first registered account receives the admin role; later accounts are students. Passwords are stored as salted PBKDF2 hashes, not plain text.
-- The AI Interview Coach sends the entered question and answer to the OpenAI Responses API and displays coaching feedback. It needs an API key configured as a secret; the key must not be committed to GitHub.
+- The AI Interview Coach sends the entered question and answer to the local Ollama server and displays coaching feedback. No OpenAI API key is required. Avoid entering private personal information in the coach.
 - Correct answers are compared in Python. The attempt score is `correct / total × 100`, rounded to a whole percentage.
 - The timed test keeps its deadline in Streamlit session state and refreshes once per second. A refresh or browser session reset ends an in-progress test; completed attempts are saved in SQLite.
 - The demo starts with 20 questions across Python, SQL, OOP and Data Structures. It is a learning prototype, not an authoritative interview syllabus.
 - This is a student demo, not production authentication. The first-account admin rule is intended for a supervised project demo. On Community Cloud, SQLite files are not guaranteed to persist after app restarts, so saved accounts, bookmarks and attempts may reset.
-- Avoid entering private personal information in the AI Coach; answer text is sent to the configured model API.
 
 ## Troubleshooting
 

@@ -28,7 +28,7 @@
 - Python runs the application logic.
 - Streamlit provides the browser interface.
 - SQLite stores user accounts, the question bank, bookmarks and test attempts.
-- The OpenAI Responses API provides AI answer feedback.
+- A locally running Ollama model provides AI answer feedback without a paid API key.
 - Pandas prepares the small attempt history for display.
 
 **Say:** “The browser interface calls database helper functions. SQLite keeps the demo easy to run without a separate database server.”
@@ -44,9 +44,10 @@
 ### Slide 6 — AI Interview Coach
 - Sends a written answer and interview question to a language model.
 - Returns strengths, improvements, a sample answer and a follow-up question.
-- Requires an API key stored in application secrets.
+- Uses the `gemma3:1b` model through Ollama on the same computer.
+- No OpenAI API key or usage payment is needed for the local demo.
 
-**Say:** “I integrated a language model through the OpenAI Responses API. The key stays in secrets and is not stored in the source code.”
+**Say:** “I connected the coach to a small language model running locally with Ollama. That avoids API charges for the classroom demo.”
 
 ### Slide 7 — Mock-test scoring and timer
 - A deadline is stored in the active Streamlit session.
@@ -70,7 +71,7 @@
 - Demo authentication; no password reset or production-grade admin setup.
 - SQLite data on cloud hosting may reset after an app restart.
 - Small starter question bank; content can be expanded.
-- Active test state is not restored if the session is refreshed; AI needs a configured API key.
+- Active test state is not restored if the session is refreshed; local AI requires Ollama to be running on the same computer.
 - Next: durable cloud storage, password recovery and more curated questions.
 
 **Say:** “The next improvements would focus on content quality and multi-user support after validating the core learning flow.”
@@ -82,8 +83,8 @@
 3. **How does login work?** The account is looked up by username and the entered password is hashed with the saved salt and compared with the stored hash.
 4. **Are passwords stored in plain text?** No. A salted PBKDF2 hash is stored instead of the original password.
 5. **Why is the first account an admin?** It lets the project owner manage the question bank; later registered accounts receive the student role.
-6. **How does the AI feature work?** It sends the interview question and candidate answer to the OpenAI Responses API and displays generated coaching feedback.
-7. **Where is the AI key stored?** In Streamlit secrets or an environment variable, never in committed source code.
+6. **How does the AI feature work?** It sends the interview question and candidate answer to the local Ollama server and displays generated coaching feedback.
+7. **Does the AI feature need a paid key?** No. The demo uses a local Ollama model, so there is no OpenAI API key or API usage charge.
 8. **Why did you choose Streamlit?** It lets a Python student build an interactive browser interface without a separate front-end stack.
 9. **Why SQLite?** It is file-based, requires no database server and suits a local prototype.
 10. **What are the main database tables?** `users`, `questions`, `bookmarks` and `attempts`.
@@ -99,4 +100,4 @@
 - **Does the portal need internet access?** No, after dependencies are installed; it runs locally.
 - **Will scores survive a restart?** Yes. Completed attempts and bookmarks are stored in SQLite.
 - **Will an unfinished test survive a restart?** No. Its active deadline and answers are held in Streamlit session state.
-- **Can the AI coach run without a key?** The rest of the portal works, but AI feedback needs an OpenAI API key configured in secrets.
+- **Can the AI coach run without a key?** Yes. Install Ollama, download the configured model once, and keep Ollama running on the same computer as the portal.
