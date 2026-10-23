@@ -1,6 +1,6 @@
 # Interview Preparation Portal
 
-A college project built with Python, Streamlit and SQLite. It supports account login, admin question CRUD, topic-based MCQ practice, per-user bookmarks and score history, timed mock tests, an AI answer coach and a dashboard.
+A college project built with Python, Streamlit and SQLite. It supports account login and password reset, admin question CRUD, topic-based MCQ practice, per-user bookmarks and score history, timed mock tests, an AI answer coach, a voice or text AI interviewer, a dashboard and an adaptive weak-topic study plan.
 
 ## Feasible one-to-two week plan
 
@@ -10,7 +10,7 @@ A college project built with Python, Streamlit and SQLite. It supports account l
 | 2–3 | Create SQLite tables and seed an initial question bank | Questions load from the database |
 | 4–5 | Build question CRUD, topic practice, search, feedback and bookmarks | Admin can manage questions |
 | 6–7 | Add timed mock tests, login and per-user history | Accounts keep separate progress |
-| 8–9 | Add AI answer feedback and dashboard | AI can review a sample response |
+| 8–9 | Add AI coaching, interview simulation and dashboard | AI can review and conduct a sample interview |
 | 10–11 | Check setup on a clean environment; fix defects | Reliable local run |
 | 12–14 | Prepare slides, rehearse the demo and viva | Presentation ready |
 
@@ -32,7 +32,13 @@ For free local AI feedback, install [Ollama for Windows](https://ollama.com/down
 ollama run gemma3:1b
 ```
 
-The model downloads the first time. Keep the Ollama app running while you use the AI Interview Coach. The portal connects to Ollama at `http://localhost:11434` and uses `gemma3:1b` by default, so AI feedback needs no paid API key. To select another installed Ollama model or server URL, set `OLLAMA_MODEL` or `OLLAMA_BASE_URL` in Streamlit secrets or environment variables. This local setup works when the portal and Ollama run on the same computer; a cloud-hosted portal cannot reach Ollama on your personal PC.
+The model downloads the first time. Keep Ollama running while you use the AI Interview Coach or AI Interviewer. The portal connects to Ollama at `http://localhost:11434` and uses `gemma3:1b` by default, so AI feedback and interview questions need no paid AI key. To select another installed Ollama model or server URL, set `OLLAMA_MODEL` or `OLLAMA_BASE_URL` in Streamlit secrets or environment variables. This local setup works when the portal and Ollama run on the same computer; a cloud-hosted portal cannot reach Ollama on your personal PC.
+
+### Voice interview
+
+On the AI Interviewer page, leave **Enable voice mode** checked to hear interviewer questions through your browser and record spoken answers. Keep answers short (ideally under a minute). The app transcribes a recording into editable text before sending it to Ollama. Transcription uses SpeechRecognition's public Google speech-recognition endpoint: it needs internet, has no separate API key in this demo, and may be limited or unavailable because it is a public testing service. The audio recording is sent to the app and then to that transcription service; only the resulting text transcript and AI debrief are saved in SQLite. Use typed mode if the microphone, browser speech playback or internet transcription is unavailable. Do not record sensitive personal information.
+
+For a deployed Streamlit app, the browser microphone and speech playback are handled on the user's device. Speech-to-text still needs internet access from the app server. The AI interviewer also needs an Ollama server reachable from the hosted app; `localhost` in Streamlit Community Cloud is not your computer.
 
 ### Email verification for signup
 
@@ -57,23 +63,27 @@ To reset the demo data, stop the app and delete `interview_prep.db`; it will be 
 3. Sign in as admin and demonstrate Create, Read, Update and Delete in Manage Questions.
 4. Bookmark a question, then show it on the Bookmarks page.
 5. Start a timed mock test and show that the score is saved to the signed-in account.
-6. Open AI Interview Coach, enter a sample answer and show the feedback.
+6. Return to the dashboard and show the weak-topic recommendation based on recent topic-focused tests.
+7. Open AI Interview Coach, enter a sample answer and show the feedback.
+8. Open AI Interviewer, choose a role and style, hear a question, record an answer, review/edit the transcript, then review the AI debrief and saved interview history.
 
 ## Design notes
 
 - `app.py` contains the Streamlit interface, login flow and page routing.
 - `database.py` initializes SQLite, hashes passwords, and provides account and data functions.
-- The database has `users`, `questions`, `bookmarks`, `attempts` and `app_migrations` tables. Email addresses are stored with newly verified accounts; the legacy phone column remains for accounts created by the earlier mobile verification version. Bookmarks and attempts are associated with a user, and bookmarks reference questions through a foreign key. Existing databases are migrated automatically.
+- The database has `users`, `questions`, `bookmarks`, `attempts`, `interview_sessions` and `app_migrations` tables. Email addresses are stored with newly verified accounts; the legacy phone column remains for accounts created by the earlier mobile verification version. Bookmarks, attempts and interview histories are associated with a user, and bookmarks reference questions through a foreign key. Existing databases are migrated automatically.
 - The Manage Questions page implements question CRUD: add MCQs, list them, edit their fields, and delete them. Deleting a question also removes linked bookmarks through the foreign-key cascade.
 - The first registered account receives the admin role; later accounts are students. Passwords are stored as salted PBKDF2 hashes, not plain text.
 - New accounts are created only after the six-digit email code is checked. The active Streamlit session holds the pending code and signup state; it is not stored in SQLite. Requests expire after 10 minutes, allow five attempts and limit resends. This confirms access to the email address; it does not prove a person's legal identity.
 - Password recovery sends a separate six-digit code to the account's registered email. The code is held in session state for 10 minutes, limited to five attempts, and required before a fresh salted password hash is stored.
 - The AI Interview Coach sends the entered question and answer to the local Ollama server and displays coaching feedback. No OpenAI API key is required. Avoid entering private personal information in the coach.
+- AI Interviewer asks one role- and difficulty-aware question at a time, can ask follow-ups based on earlier answers, and gives an approximate score and coaching debrief at the end. Voice mode uses Streamlit's microphone recorder, the public Google speech-recognition endpoint to transcribe spoken answers, and browser speech synthesis to read interviewer questions aloud. Transcribed text and debriefs are stored in `interview_sessions`; raw audio is not saved there. An unfinished interview is held in Streamlit session state and is lost if the browser session refreshes. This is a practice simulation, not a real recruiter or hiring prediction. Avoid entering private personal information.
 - Correct answers are compared in Python. The attempt score is `correct / total × 100`, rounded to a whole percentage.
 - Practice and mock-test choices start unselected. Mock tests draw a random set of up to 20 questions from the chosen topic; unanswered items count as incorrect.
 - The timed test keeps its deadline in Streamlit session state and refreshes once per second. A refresh or browser session reset ends an in-progress test; completed attempts are saved in SQLite.
+- The dashboard builds a weak-topic plan from up to the user's three latest topic-focused mock tests per topic. It recommends the lowest-accuracy topic and opens that topic in the Question Bank; mixed-topic tests are excluded because they do not identify which subject caused a low score.
 - The demo starts with 60 questions across Python, SQL, OOP, Data Structures, DBMS, Operating Systems, Computer Networks and Behavioral Interview. This is a learning prototype, not an authoritative interview syllabus.
-- This is a student demo, not production authentication. Signup email verification needs a Brevo account, a verified sender, an API key and internet access. Free-plan sending is limited to 300 emails per day and requires Brevo account approval. The first-account admin rule is intended for a supervised project demo. On Community Cloud, SQLite files are not guaranteed to persist after app restarts, so saved accounts, bookmarks and attempts may reset.
+- This is a student demo, not production authentication. Signup email verification and password reset need a Brevo account, a verified sender, an API key and internet access. The first-account admin rule is intended for a supervised project demo. Local Ollama works on the same computer as the app; Community Cloud cannot reach Ollama on your PC, and its SQLite files are not guaranteed to persist after app restarts, so accounts, interview history, bookmarks and attempts may reset.
 
 ## Troubleshooting
 
@@ -81,4 +91,6 @@ To reset the demo data, stop the app and delete `interview_prep.db`; it will be 
 - If the port is busy, run `streamlit run app.py --server.port 8502`.
 - If signup cannot send an email, confirm the Brevo API key is correct, the sender address is verified, and the sender name/email match `.streamlit/secrets.toml`. Check whether Brevo has approved transactional sending for your account.
 - If password reset cannot send an email, check the same Brevo settings and use the email address linked to that account.
+- If AI Interviewer cannot connect, open Ollama and run `ollama run gemma3:1b`. For Community Cloud, configure a reachable Ollama server; `localhost` there means the cloud container, not your PC.
+- If voice transcription cannot connect, check internet access and try again, or type the answer. The demo's public Google recognizer can be rate-limited or withdrawn; browser speech playback also depends on the browser and its installed voices.
 - If the database schema is changed during development, stop the app and remove the local demo database to let initialization create it again.

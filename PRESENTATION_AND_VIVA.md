@@ -20,9 +20,10 @@
 - Bookmark questions for revision.
 - Take a timed test; receive score and review.
 - Ask the AI coach for feedback on a written answer.
+- Practise a live voice or text interview; review the spoken answer's transcript before submitting it.
 - Track past attempts on the dashboard.
 
-**Say:** “The first account is an admin that manages questions with CRUD. Students can practise, take tests and get AI feedback on a written answer.”
+**Say:** “The first account is an admin that manages questions with CRUD. Students can practise, take tests, get AI feedback, and rehearse spoken interview answers.”
 
 ### Slide 4 — Technology and architecture
 - Python runs the application logic.
@@ -30,9 +31,10 @@
 - SQLite stores user accounts, the question bank, bookmarks and test attempts.
 - Brevo's transactional email API delivers the signup code; Python checks it before account creation.
 - A locally running Ollama model provides AI answer feedback without a paid API key.
+- Streamlit records voice answers; a public Google speech service transcribes them, and the browser reads interviewer questions aloud.
 - Pandas prepares the small attempt history for display.
 
-**Say:** “The browser interface calls database helper functions. SQLite keeps the demo easy to run without a separate database server.”
+**Say:** “The browser interface calls database helper functions. SQLite keeps the demo easy to run without a separate database server. Voice questions are spoken in the browser, and the recorded answer is transcribed before the AI reviews it.”
 
 ### Slide 5 — Database design
 - `questions`: topic, question, four options, correct answer and explanation.
@@ -66,6 +68,8 @@
 - Save a question and find it in Bookmarks.
 - Finish a short mock test.
 - Return to the dashboard to view the saved result.
+- Show the personalized study plan and open its recommended topic for practice.
+- Run a short AI interview, click to hear a question, record and review an answer transcript, then show the final debrief and saved history.
 
 **Say:** “This walkthrough follows one learner from practice to revision to a measured mock test.”
 
@@ -73,7 +77,8 @@
 - Demo authentication; signup verification and password reset need a configured email provider, and the app has no production-grade admin setup.
 - SQLite data on cloud hosting may reset after an app restart.
 - The 60-question starter bank needs further expert review and role-specific expansion.
-- Active test state is not restored if the session is refreshed; local AI requires Ollama to be running on the same computer.
+- Active mock tests and unfinished AI interviews are not restored if the session is refreshed; local AI requires Ollama to be running on the same computer.
+- Voice transcription needs internet and uses a public Google testing endpoint that may be limited or withdrawn; browser speech playback depends on browser support.
 - Next: durable cloud storage, stronger admin provisioning and more curated questions.
 
 **Say:** “The next improvements would focus on content quality and multi-user support after validating the core learning flow.”
@@ -92,7 +97,7 @@
 10. **Does the AI feature need a paid key?** No. The demo uses a local Ollama model, so there is no OpenAI API key or API usage charge.
 11. **Why did you choose Streamlit?** It lets a Python student build an interactive browser interface without a separate front-end stack.
 12. **Why SQLite?** It is file-based, requires no database server and suits a local prototype.
-13. **What are the main database tables?** `users`, `questions`, `bookmarks` and `attempts`.
+13. **What are the main database tables?** `users`, `questions`, `bookmarks`, `attempts`, `interview_sessions` and `app_migrations`.
 14. **How are user records separated?** Each bookmark and test attempt stores a user ID, and queries filter by that ID.
 15. **How do you calculate the score?** Correct answers divided by total questions, multiplied by 100 and rounded.
 16. **How does the timer work?** The app stores an end timestamp in session state and recalculates remaining seconds on refresh.
@@ -101,6 +106,12 @@
 19. **Why are answer choices unselected when a question opens?** Learners should choose their own answer; the stored answer key is only used after submission to check the response and calculate the score.
 20. **How does an existing database get the new questions?** A one-time versioned migration inserts missing starter questions while preserving existing accounts, bookmarks and attempts.
 21. **How does password reset work?** The user requests a six-digit code at the registered email, enters it before it expires, then the app saves a new salted PBKDF2 hash. The raw password is not stored.
+22. **How does the weak-topic study plan choose a recommendation?** It compares accuracy across up to the latest three topic-focused mock tests per subject and recommends the lowest-scoring topic. Mixed-topic tests are left out because they do not show which subject needs work.
+23. **How does the AI Interviewer work?** It sends the interview context and conversation to Ollama, asks one question at a time, adapts follow-ups to the student's answers, and generates an approximate feedback score and debrief. Voice mode records the answer in the browser, transcribes it to editable text, and reads each interviewer question aloud.
+24. **Can the AI Interviewer run on Streamlit Community Cloud using local Ollama?** No. `localhost` on Community Cloud points to its own server. The cloud version needs a separately reachable Ollama service; local practice works when Ollama and Streamlit run on the same computer.
+25. **Is the AI score an official hiring result?** No. It is practice feedback from a language model and should be treated as guidance, not a hiring decision.
+26. **How is speech converted to text, and is the audio saved?** The demo uses SpeechRecognition's public Google speech endpoint, so internet is required and the endpoint may be limited. Raw audio is not saved in the interview-history table; the reviewed text transcript and debrief are saved in SQLite.
+27. **Does voice mode need an AI API key?** The Ollama language model runs locally without a paid AI key. The demo's speech-to-text uses a public testing endpoint without a separately configured key, so typed answers are available if that service is unavailable.
 
 ## Likely demo questions
 

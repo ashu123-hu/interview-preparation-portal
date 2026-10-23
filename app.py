@@ -1,6 +1,7 @@
 """Interview Preparation Portal: Streamlit, SQLite, account login and AI feedback."""
 from datetime import datetime
 import html
+import io
 import json
 import os
 import random
@@ -12,12 +13,14 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 
 from database import (
     add_attempt, authenticate_user, create_question, delete_question,
     email_in_use, get_account_by_email, get_bookmarks, get_dashboard,
-    get_questions, init_db, register_user, set_bookmark, update_question,
+    get_interview_history, get_questions, init_db, register_user,
+    save_interview_session, set_bookmark, update_question,
     update_user_password, username_exists,
 )
 
@@ -28,6 +31,183 @@ def setting(name, default=""):
     except Exception:
         value = ""
     return value or os.environ.get(name, default)
+
+
+def ollama_chat(messages, num_predict=400, timeout=180):
+    """Send a chat request to the configured local or self-hosted Ollama server."""
+    ollama_url = setting("OLLAMA_BASE_URL", "http://localhost:11434").strip()
+    model_name = setting("OLLAMA_MODEL", "gemma3:1b").strip()
+    request_body = json.dumps({
+        "model": model_name,
+        "messages": messages,
+        "stream": False,
+        "options": {"num_predict": num_predict},
+    }).encode("utf-8")
+    request = Request(
+        f"{ollama_url.rstrip('/')}/api/chat",
+        data=request_body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    content = result.get("message", {}).get("content", "").strip()
+    if not content:
+        raise RuntimeError("Ollama returned an empty response. Try again or select another model.")
+    return content
+
+
+def transcribe_voice_answer(audio_bytes, language):
+    """Transcribe a browser-recorded WAV answer with the free Google recognizer."""
+    try:
+        import speech_recognition as speech
+    except ImportError as error:
+        raise RuntimeError(
+            "Voice transcription is not installed. Run `.venv\\Scripts\\python.exe -m pip install -r requirements.txt`, then restart the app."
+        ) from error
+
+    recognizer = speech.Recognizer()
+    recognizer.operation_timeout = 25
+    try:
+        with speech.AudioFile(io.BytesIO(audio_bytes)) as source:
+            recording = recognizer.record(source)
+        return recognizer.recognize_google(recording, language=language).strip()
+    except speech.UnknownValueError as error:
+        raise ValueError("I couldn't understand that recording. Try again in a quiet place or type your answer.") from error
+    except speech.RequestError as error:
+        raise RuntimeError(
+            "Speech-to-text could not connect. Check your internet connection, then try again or type your answer."
+        ) from error
+
+
+def interviewer_voice_button(text, language):
+    """Show an in-browser play button for an interviewer message."""
+    safe_text = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
+    safe_language = html.escape(language, quote=True)
+    components.html(
+        f"""
+        <button id="play-interviewer-voice" style="border:0;border-radius:10px;padding:10px 15px;
+            background:#edf2ff;color:#3449b8;font:600 14px system-ui;cursor:pointer">
+            🔊 Hear interviewer
+        </button>
+        <script>
+        const playButton = document.getElementById("play-interviewer-voice");
+        playButton.addEventListener("click", () => {{
+            if (!("speechSynthesis" in window)) {{
+                playButton.textContent = "Voice playback is unavailable in this browser";
+                return;
+            }}
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance({safe_text});
+            utterance.lang = "{safe_language}";
+            utterance.rate = 0.95;
+            window.speechSynthesis.speak(utterance);
+        }});
+        </script>
+        """,
+        height=52,
+        scrolling=False,
+    )
+
+
+def generate_interview_question(interview):
+    next_number = interview["questions_asked"] + 1
+    instructions = (
+        "You are a realistic but supportive interviewer for a student candidate. "
+        f"Target role: {interview['target_role']}. Interview style: {interview['interview_type']}. "
+        f"Difficulty: {interview['difficulty']}. You are asking question {next_number} "
+        f"of {interview['question_count']}. Ask exactly one concise, relevant question. "
+        "Adapt it to the candidate's last answer when useful, otherwise move to a fresh interview topic. "
+        "Do not answer the question, grade the candidate, or include multiple questions."
+    )
+    messages = [{"role": "system", "content": instructions}, *interview["messages"]]
+    if not interview["messages"]:
+        messages.append({"role": "user", "content": "Start the interview with the first question now."})
+    response = ollama_chat(messages, num_predict=180)
+    interview["messages"].append({"role": "assistant", "content": response})
+    interview["questions_asked"] = next_number
+
+
+def generate_interview_feedback(interview):
+    instructions = (
+        "You are an experienced interviewer giving a fair practice debrief to a student. "
+        f"Assess this {interview['difficulty'].lower()} {interview['interview_type'].lower()} interview "
+        f"for the role of {interview['target_role']}. Use only the answers in the conversation. "
+        "Give concise sections titled: Readiness score (0-100, approximate), Strengths, "
+        "What to improve, Answer-by-answer notes, and One practice goal. "
+        "Be specific, constructive and honest; do not claim uncertain facts are correct. "
+        "If the interview ended early, make that clear and assess only the answers given."
+    )
+    feedback = ollama_chat(
+        [{"role": "system", "content": instructions}, *interview["messages"]],
+        num_predict=700,
+    )
+    interview["messages"].append({"role": "assistant", "content": feedback})
+    interview["feedback"] = feedback
+    interview["completed"] = True
+    interview["active"] = False
+
+
+def advance_interview(interview, user_id):
+    """Generate the next question or the debrief after an answer/finish request."""
+    if interview.get("finish_early") or interview["answers_given"] >= interview["question_count"]:
+        generate_interview_feedback(interview)
+    else:
+        generate_interview_question(interview)
+    interview["awaiting_ai"] = False
+    interview["last_error"] = None
+    if interview["completed"] and not interview.get("saved"):
+        store_completed_interview(interview, user_id)
+
+
+def submit_interview_answer(interview, user_id, answer):
+    """Add a typed or transcribed answer and request the next interview turn."""
+    interview["messages"].append({"role": "user", "content": answer.strip()})
+    interview["answers_given"] += 1
+    interview["awaiting_ai"] = True
+    interview["finish_early"] = False
+    interview["last_error"] = None
+    try:
+        with st.spinner("Your interviewer is considering your answer..."):
+            advance_interview(interview, user_id)
+    except Exception as error:
+        interview["last_error"] = ollama_error_message(error)
+    st.session_state.live_interview = interview
+
+
+def store_completed_interview(interview, user_id):
+    """Persist a completed session once, keeping its feedback if storage fails."""
+    if interview.get("saved"):
+        return
+    interview.setdefault("completed_at", datetime.now().isoformat(timespec="seconds"))
+    try:
+        interview["history_id"] = save_interview_session(
+            user_id,
+            interview["target_role"],
+            interview["interview_type"],
+            interview["difficulty"],
+            interview["question_count"],
+            interview["answers_given"],
+            json.dumps(interview["messages"], ensure_ascii=False),
+            interview["feedback"],
+            interview["completed_at"],
+        )
+    except Exception as error:
+        interview["save_error"] = str(error)
+    else:
+        interview["saved"] = True
+        interview.pop("save_error", None)
+
+
+def ollama_error_message(error):
+    if isinstance(error, HTTPError):
+        model_name = setting("OLLAMA_MODEL", "gemma3:1b").strip()
+        if error.code == 404:
+            return f"Ollama could not find the selected model. Run `ollama run {model_name}` in PowerShell, then retry."
+        return f"Ollama returned an HTTP {error.code} error. Check the model and Ollama server settings."
+    if isinstance(error, URLError):
+        return "Could not reach Ollama. Open the Ollama app and run the selected model in PowerShell, then retry."
+    return f"The AI request failed: {error}"
 
 
 def send_verification_email(recipient, code, purpose="signup"):
@@ -174,6 +354,12 @@ def page_header(eyebrow, title, description, icon):
         """,
         unsafe_allow_html=True,
     )
+
+
+def open_topic_practice(topic):
+    """Navigate from the study plan to focused practice for one topic."""
+    st.session_state["practice_focus_topic"] = topic
+    st.session_state["nav_page"] = "🧩  Question Bank"
 
 
 init_db()
@@ -465,10 +651,11 @@ page_labels = {
     "🔖  Bookmarks": "Bookmarks",
     "⏱️  Mock Test": "Mock Test",
     "🤖  AI Interview Coach": "AI Interview Coach",
+    "🎙️  AI Interviewer": "AI Interviewer",
 }
 if user["role"] == "admin":
     page_labels["🛠️  Manage Questions"] = "Manage Questions"
-selected_page = st.sidebar.radio("YOUR SPACE", list(page_labels))
+selected_page = st.sidebar.radio("YOUR SPACE", list(page_labels), key="nav_page")
 page = page_labels[selected_page]
 
 if page == "Dashboard":
@@ -496,6 +683,43 @@ if page == "Dashboard":
             with st.container(border=True):
                 st.markdown("### Your progress starts here")
                 st.write("Take a short mock test to create your first score and track improvement over time.")
+    st.subheader("🎯 Your personalized study plan")
+    topic_performance = stats["topic_performance"]
+    if topic_performance:
+        weakest_topic = topic_performance[0]
+        with st.container(border=True):
+            focus_column, metrics_column = st.columns([1.5, 1], gap="large")
+            with focus_column:
+                st.markdown(f"### Focus next: {html.escape(weakest_topic['topic'])}")
+                st.write(
+                    f"This is your lowest-scoring topic across your last "
+                    f"{weakest_topic['attempt_count']} topic-focused mock test(s)."
+                )
+                st.progress(weakest_topic["accuracy"], text=f"Recent accuracy: {weakest_topic['accuracy']}%")
+                st.button(
+                    f"Practise {weakest_topic['topic']} questions",
+                    type="primary",
+                    key="study_plan_practice",
+                    on_click=open_topic_practice,
+                    args=(weakest_topic["topic"],),
+                )
+            with metrics_column:
+                st.metric("Questions attempted", weakest_topic["total"])
+                st.metric("Correct answers", weakest_topic["correct"])
+        performance_table = pd.DataFrame([
+            {
+                "Topic": item["topic"],
+                "Recent accuracy (%)": item["accuracy"],
+                "Focused tests": item["attempt_count"],
+            }
+            for item in topic_performance
+        ])
+        st.dataframe(performance_table, hide_index=True, use_container_width=True)
+        st.caption("Topic accuracy uses up to your three latest topic-focused mock tests. Mixed-topic tests are not used for this recommendation.")
+    else:
+        with st.container(border=True):
+            st.markdown("### Your personalized focus will appear here")
+            st.write("Take a mock test for a specific topic to get a score-based recommendation. Mixed-topic tests do not identify a weak topic.")
     st.subheader("A simple study rhythm")
     plan_columns = st.columns(3, gap="medium")
     study_steps = [
@@ -514,10 +738,17 @@ elif page == "Question Bank":
     page_header("PRACTICE LIBRARY", "Question Bank", "Find a topic, sharpen your answers and save questions for later.", "🧩")
     all_questions = get_questions()
     topics = ["All topics"] + sorted({q["topic"] for q in all_questions})
+    focus_topic = st.session_state.pop("practice_focus_topic", None)
+    focus_notice = None
+    if focus_topic in topics:
+        st.session_state["question_bank_topic"] = focus_topic
+        focus_notice = focus_topic
     with st.container(border=True):
         col1, col2 = st.columns([1, 2])
-        topic = col1.selectbox("Filter by topic", topics)
+        topic = col1.selectbox("Filter by topic", topics, key="question_bank_topic")
         query = col2.text_input("Search the question bank", placeholder="Try a keyword, topic, or concept")
+    if focus_notice:
+        st.success(f"Study plan selected **{focus_notice}**. Start with these questions and check your progress in the next mock test.")
     selected = [q for q in all_questions if (topic == "All topics" or q["topic"] == topic)
                 and query.lower() in (q["question"] + q["topic"]).lower()]
     st.markdown(f'<span class="result-count">{len(selected)} questions found</span>', unsafe_allow_html=True)
@@ -584,12 +815,6 @@ elif page == "AI Interview Coach":
             st.markdown("- The situation or challenge\n- What you personally did\n- The result or lesson")
             st.caption("Keep personal or sensitive details out of your answer.")
     if ask_ai:
-        try:
-            ollama_url = st.secrets.get("OLLAMA_BASE_URL", os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
-            model_name = st.secrets.get("OLLAMA_MODEL", os.environ.get("OLLAMA_MODEL", "gemma3:1b"))
-        except Exception:
-            ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-            model_name = os.environ.get("OLLAMA_MODEL", "gemma3:1b")
         if not interview_question.strip() or not candidate_answer.strip():
             st.warning("Enter both the interview question and your answer.")
         else:
@@ -606,32 +831,205 @@ elif page == "AI Interview Coach":
             )
             with st.spinner("Reviewing your answer..."):
                 try:
-                    request_body = json.dumps({
-                        "model": model_name,
-                        "messages": [
-                            {"role": "system", "content": instructions},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "stream": False,
-                        "options": {"num_predict": 600},
-                    }).encode("utf-8")
-                    request = Request(
-                        f"{ollama_url.rstrip('/')}/api/chat",
-                        data=request_body,
-                        headers={"Content-Type": "application/json"},
-                        method="POST",
+                    feedback = ollama_chat(
+                        [{"role": "system", "content": instructions}, {"role": "user", "content": prompt}],
+                        num_predict=600,
                     )
-                    with urlopen(request, timeout=180) as response:
-                        result = json.loads(response.read().decode("utf-8"))
-                    feedback = result.get("message", {}).get("content", "").strip()
-                    if feedback:
-                        st.markdown(feedback)
-                    else:
-                        st.error("Ollama returned an empty response. Try asking again.")
-                except URLError:
-                    st.error("Could not reach Ollama. Make sure the Ollama app is open and the model is installed by running `ollama run gemma3:1b` in PowerShell.")
+                    st.markdown(feedback)
                 except Exception as error:
-                    st.error(f"The AI request failed: {error}")
+                    st.error(ollama_error_message(error))
+
+elif page == "AI Interviewer":
+    page_header("LIVE PRACTICE", "AI Interviewer", "Practise a spoken or typed interview, then get a personal debrief.", "🎙️")
+    st.caption(
+        "AI questions and feedback use your configured Ollama model. In voice mode, the browser reads questions aloud and "
+        "recorded answers are transcribed by Google's public speech service, so internet is required. Audio is not saved to your "
+        "interview history; the transcript is. Avoid sharing sensitive personal details."
+    )
+    interview = st.session_state.get("live_interview")
+
+    if interview is None:
+        with st.container(border=True):
+            st.markdown("### Set up your interview")
+            with st.form("live_interview_setup_form"):
+                target_role = st.text_input("Target role", placeholder="e.g. Junior Python Developer")
+                interview_type = st.selectbox("Interview style", ["Mixed", "Technical", "Behavioral"])
+                difficulty = st.selectbox("Difficulty", ["Entry-level", "Intermediate", "Advanced"])
+                question_count = st.selectbox("Questions", [3, 5, 8], index=1)
+                voice_mode = st.checkbox("Enable voice mode: speak answers and hear questions", value=True)
+                voice_language = st.selectbox(
+                    "Voice language",
+                    ["English (India)", "English (US)"],
+                    disabled=not voice_mode,
+                )
+                start_interview = st.form_submit_button("Start interview", type="primary", width="stretch")
+        if start_interview:
+            interview = {
+                "target_role": target_role.strip() or "Entry-level candidate",
+                "interview_type": interview_type,
+                "difficulty": difficulty,
+                "question_count": question_count,
+                "voice_mode": voice_mode,
+                "voice_language": "en-IN" if voice_language == "English (India)" else "en-US",
+                "session_key": secrets.token_hex(5),
+                "questions_asked": 0,
+                "answers_given": 0,
+                "messages": [],
+                "active": True,
+                "completed": False,
+                "awaiting_ai": True,
+                "finish_early": False,
+                "saved": False,
+                "last_error": None,
+            }
+            with st.spinner("Your interviewer is preparing the first question..."):
+                try:
+                    generate_interview_question(interview)
+                except Exception as error:
+                    st.error(ollama_error_message(error))
+                else:
+                    interview["awaiting_ai"] = False
+                    st.session_state.live_interview = interview
+                    st.rerun()
+
+        history = get_interview_history(user["id"])
+        if history:
+            st.subheader("🗂️  Previous interview debriefs")
+            for past_interview in history:
+                label = (
+                    f"{past_interview['target_role']} · {past_interview['interview_type']} · "
+                    f"{past_interview['completed_at']}"
+                )
+                with st.expander(label):
+                    st.caption(
+                        f"{past_interview['difficulty']} · "
+                        f"{past_interview['answered_count']}/{past_interview['question_count']} answers"
+                    )
+                    st.markdown(past_interview["feedback"])
+
+    elif interview["active"]:
+        st.caption(
+            f"{interview['target_role']} · {interview['interview_type']} · "
+            f"{interview['difficulty']} · "
+            f"{'Voice mode' if interview.get('voice_mode') else 'Text mode'}"
+        )
+        st.progress(
+            interview["answers_given"] / interview["question_count"],
+            text=f"Answers completed: {interview['answers_given']} / {interview['question_count']}",
+        )
+        if st.button(
+            "Finish early and get feedback",
+            disabled=interview["answers_given"] == 0 or interview["awaiting_ai"],
+            key="finish_live_interview_early",
+        ):
+            interview["awaiting_ai"] = True
+            interview["finish_early"] = True
+            try:
+                with st.spinner("Preparing your interview debrief..."):
+                    advance_interview(interview, user["id"])
+            except Exception as error:
+                interview["last_error"] = ollama_error_message(error)
+            st.session_state.live_interview = interview
+            st.rerun()
+
+        for message in interview["messages"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if (
+            interview.get("voice_mode")
+            and interview["messages"]
+            and interview["messages"][-1]["role"] == "assistant"
+        ):
+            interviewer_voice_button(
+                interview["messages"][-1]["content"],
+                interview.get("voice_language", "en-IN"),
+            )
+
+        if interview["awaiting_ai"]:
+            if interview.get("last_error"):
+                st.error(interview["last_error"])
+            if st.button("Retry interviewer response", key="retry_live_interview_ai"):
+                try:
+                    with st.spinner("Your interviewer is responding..."):
+                        advance_interview(interview, user["id"])
+                except Exception as error:
+                    interview["last_error"] = ollama_error_message(error)
+                st.session_state.live_interview = interview
+                st.rerun()
+        else:
+            if interview.get("voice_mode"):
+                question_number = interview["questions_asked"]
+                audio_value = st.audio_input(
+                    "Record your answer",
+                    sample_rate=16000,
+                    key=f"interview_voice_{interview['session_key']}_{question_number}",
+                    help="Record a short answer in English (ideally under a minute), then convert it to text so you can review it before sending.",
+                )
+                if audio_value:
+                    st.audio(audio_value)
+                    if st.button(
+                        "Convert recording to text",
+                        key=f"transcribe_interview_{interview['session_key']}_{question_number}",
+                    ):
+                        try:
+                            with st.spinner("Transcribing your answer..."):
+                                transcript = transcribe_voice_answer(
+                                    audio_value.getvalue(),
+                                    interview.get("voice_language", "en-IN"),
+                                )
+                            if not transcript:
+                                st.warning("No words were detected. Record again or type your answer.")
+                            else:
+                                interview["draft_question"] = question_number
+                                interview["draft_answer"] = transcript
+                                st.session_state.live_interview = interview
+                                st.rerun()
+                        except (RuntimeError, ValueError) as error:
+                            st.error(str(error))
+
+                draft_key = f"interview_voice_draft_{interview['session_key']}_{question_number}"
+                if interview.get("draft_question") == question_number:
+                    if draft_key not in st.session_state:
+                        st.session_state[draft_key] = interview.get("draft_answer", "")
+                    reviewed_answer = st.text_area(
+                        "Review or edit your transcript before sending",
+                        key=draft_key,
+                        height=120,
+                    )
+                    if st.button(
+                        "Send spoken answer",
+                        type="primary",
+                        key=f"send_voice_interview_{interview['session_key']}_{question_number}",
+                        disabled=not reviewed_answer.strip(),
+                    ):
+                        interview.pop("draft_question", None)
+                        interview.pop("draft_answer", None)
+                        submit_interview_answer(interview, user["id"], reviewed_answer)
+                        st.rerun()
+
+            answer = st.chat_input(
+                "Or type your answer instead..." if interview.get("voice_mode") else "Type your answer to the interviewer...",
+                key=f"interview_typed_{interview['session_key']}_{interview['questions_asked']}",
+            )
+            if answer and answer.strip():
+                submit_interview_answer(interview, user["id"], answer)
+                st.rerun()
+
+    else:
+        st.success("Interview complete. Review your debrief below, then start another practice interview when ready.")
+        if interview.get("save_error"):
+            st.warning("The debrief is ready, but it could not be saved to interview history.")
+            if st.button("Retry saving interview history", key="retry_save_interview_history"):
+                store_completed_interview(interview, user["id"])
+                st.session_state.live_interview = interview
+                st.rerun()
+        for message in interview["messages"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        if st.button("Start another interview", type="primary", key="start_another_live_interview"):
+            st.session_state.pop("live_interview", None)
+            st.rerun()
 
 elif page == "Manage Questions":
     if user["role"] != "admin":

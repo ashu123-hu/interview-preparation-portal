@@ -106,6 +106,18 @@ def init_db():
                 correct INTEGER NOT NULL, total INTEGER NOT NULL, completed_at TEXT NOT NULL,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS interview_sessions (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                target_role TEXT NOT NULL,
+                interview_type TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                question_count INTEGER NOT NULL,
+                answered_count INTEGER NOT NULL,
+                transcript_json TEXT NOT NULL,
+                feedback TEXT NOT NULL,
+                completed_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS app_migrations (
                 name TEXT PRIMARY KEY,
                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -291,12 +303,64 @@ def add_attempt(topic, score, correct, total, completed_at, user_id):
         db.execute("INSERT INTO attempts(topic,score,correct,total,completed_at,user_id) VALUES(?,?,?,?,?,?)", (topic, score, correct, total, completed_at, user_id))
 
 
+def save_interview_session(user_id, target_role, interview_type, difficulty,
+                           question_count, answered_count, transcript_json,
+                           feedback, completed_at):
+    """Save one finished AI interview for the signed-in student."""
+    with connect() as db:
+        cursor = db.execute(
+            "INSERT INTO interview_sessions(user_id,target_role,interview_type,difficulty,question_count,answered_count,transcript_json,feedback,completed_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (user_id, target_role, interview_type, difficulty, question_count,
+             answered_count, transcript_json, feedback, completed_at),
+        )
+        return cursor.lastrowid
+
+
+def get_interview_history(user_id, limit=10):
+    """Return a student's latest completed AI interview summaries."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id,target_role,interview_type,difficulty,question_count,answered_count,feedback,completed_at "
+            "FROM interview_sessions WHERE user_id=? ORDER BY id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_dashboard(user_id):
     with connect() as db:
         question_count = db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
         attempt_count, average = db.execute("SELECT COUNT(*), COALESCE(AVG(score),0) FROM attempts WHERE user_id=?", (user_id,)).fetchone()
         bookmark_count = db.execute("SELECT COUNT(*) FROM bookmarks WHERE user_id=?", (user_id,)).fetchone()[0]
         recent = db.execute("SELECT completed_at, topic, score, correct, total FROM attempts WHERE user_id=? ORDER BY id DESC LIMIT 20", (user_id,)).fetchall()
+        topic_attempts = db.execute(
+            "SELECT topic, correct, total, completed_at FROM attempts "
+            "WHERE user_id=? AND topic <> 'All topics' ORDER BY id DESC",
+            (user_id,),
+        ).fetchall()
+
+    topic_summary = {}
+    for row in topic_attempts:
+        summary = topic_summary.setdefault(row["topic"], {
+            "topic": row["topic"], "correct": 0, "total": 0,
+            "attempt_count": 0, "last_attempt": row["completed_at"],
+        })
+        if summary["attempt_count"] >= 3:
+            continue
+        summary["correct"] += row["correct"]
+        summary["total"] += row["total"]
+        summary["attempt_count"] += 1
+        summary["accuracy"] = round(summary["correct"] * 100 / summary["total"])
+    topic_performance = sorted(
+        topic_summary.values(),
+        key=lambda item: (
+            item["correct"] / item["total"],
+            -item["attempt_count"],
+            item["topic"].casefold(),
+        ),
+    )
     return {"question_count": question_count, "attempt_count": attempt_count,
             "average_score": average, "bookmark_count": bookmark_count,
-            "recent": [tuple(r) for r in reversed(recent)]}
+            "recent": [tuple(r) for r in reversed(recent)],
+            "topic_performance": topic_performance}
