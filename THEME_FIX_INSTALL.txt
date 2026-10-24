@@ -1,0 +1,18 @@
+INTERVIEW PREPARATION PORTAL — THEME FIX
+
+Apply these files to the root of your existing project folder:
+- app.py
+- requirements.txt
+- .streamlit/config.toml
+
+Steps:
+1. Stop the running app with Ctrl+C in its terminal.
+2. Extract this ZIP into your existing Interview Preparation Portal folder and replace app.py and requirements.txt. Create or merge the .streamlit folder and add config.toml.
+3. Keep your existing .streamlit/secrets.toml and interview_prep.db. They are not included in this ZIP.
+4. In the VS Code terminal, run:
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   .\.venv\Scripts\python.exe -m streamlit run app.py
+5. In the app menu (⋮), open Settings and select Light or Dark. Restart the app if it still shows the previous theme.
+6. Once both modes look correct, upload app.py, requirements.txt, and .streamlit/config.toml to GitHub.
+
+The dual custom light/dark theme configuration needs Streamlit 1.51 or newer; requirements.txt sets that minimum.

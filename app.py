@@ -1,4 +1,4 @@
-"""Interview Preparation Portal: Streamlit, SQLite, account login and AI feedback."""
+"""Jobview: Streamlit interview-preparation app with SQLite and AI feedback."""
 from datetime import datetime
 import html
 import io
@@ -87,7 +87,7 @@ def interviewer_voice_button(text, language):
     components.html(
         f"""
         <button id="play-interviewer-voice" style="border:0;border-radius:10px;padding:10px 15px;
-            background:#edf2ff;color:#3449b8;font:600 14px system-ui;cursor:pointer">
+            background:linear-gradient(110deg,#5368e8,#6e73ed);color:#fff;font:600 14px system-ui;cursor:pointer">
             🔊 Hear interviewer
         </button>
         <script>
@@ -214,7 +214,7 @@ def send_verification_email(recipient, code, purpose="signup"):
     """Send a short-lived signup or password-reset code with Brevo."""
     api_key = setting("BREVO_API_KEY").strip()
     sender_email = setting("BREVO_SENDER_EMAIL").strip()
-    sender_name = setting("BREVO_SENDER_NAME", "Interview Prep Portal").strip()
+    sender_name = setting("BREVO_SENDER_NAME", "Jobview").strip()
     if not api_key or not sender_email:
         raise ValueError(
             "Email verification is not configured. Add BREVO_API_KEY and "
@@ -223,7 +223,7 @@ def send_verification_email(recipient, code, purpose="signup"):
 
     is_password_reset = purpose == "password reset"
     action = "reset your password" if is_password_reset else "finish creating your account"
-    subject = "Your Interview Prep Portal password reset code" if is_password_reset else "Your Interview Prep Portal verification code"
+    subject = "Your Jobview password reset code" if is_password_reset else "Your Jobview verification code"
     body = {
         "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": recipient}],
@@ -233,7 +233,7 @@ def send_verification_email(recipient, code, purpose="signup"):
             "If you did not request this code, you can ignore this email."
         ),
         "htmlContent": (
-            f"<p>Use this code to {action} in Interview Prep Portal:</p>"
+            f"<p>Use this code to {action} in Jobview:</p>"
             f"<p style=\"font-size:28px;font-weight:bold;letter-spacing:6px\">{code}</p>"
             "<p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>"
         ),
@@ -268,19 +268,18 @@ def masked_email(email):
     return f"{visible}{'•' * max(2, len(local_part) - 1)}@{domain}"
 
 
-st.set_page_config(page_title="Interview Prep Portal", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Jobview", page_icon="🎯", layout="wide", initial_sidebar_state="expanded")
 st.markdown(
     """
     <style>
-    :root { --ink:#172443; --muted:#71809b; --primary:#5368e8; --line:#e5eaf3; --surface:#fff; }
     html, body, [class*="css"] { font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    div[data-testid="stAppViewContainer"] { position:relative; isolation:isolate; background:#f5f7fc; color:var(--ink); }
+    div[data-testid="stAppViewContainer"] { position:relative; isolation:isolate; background:transparent; }
     div[data-testid="stAppViewContainer"]::before { content:""; position:fixed; inset:-7vh -4vw; z-index:0; pointer-events:none; opacity:.78; background:radial-gradient(ellipse at 14% 20%,rgba(83,104,232,.14),transparent 28%),radial-gradient(ellipse at 86% 26%,rgba(57,203,183,.14),transparent 25%),radial-gradient(ellipse at 72% 88%,rgba(83,104,232,.10),transparent 24%),radial-gradient(circle,rgba(83,104,232,.22) 1px,transparent 1.6px); background-size:100% 100%,100% 100%,100% 100%,34px 34px; animation:portalDrift 28s ease-in-out infinite alternate; }
     div[data-testid="stAppViewContainer"]::after { content:""; position:fixed; width:210px; height:210px; right:5vw; top:14vh; z-index:0; pointer-events:none; border:1px solid rgba(83,104,232,.12); border-radius:50%; box-shadow:0 0 0 22px rgba(83,104,232,.035),0 0 0 48px rgba(57,203,183,.025); animation:portalOrbit 19s ease-in-out infinite alternate; }
     @keyframes portalDrift { from { transform:translate3d(-.7%,-.5%,0) scale(1); } to { transform:translate3d(.7%,.6%,0) scale(1.035); } }
     @keyframes portalOrbit { from { transform:translate3d(0,-8px,0) rotate(-7deg); } to { transform:translate3d(-12px,13px,0) rotate(8deg); } }
     div[data-testid="stMain"], section.main { position:relative; z-index:1; }
-    div[data-testid="stHeader"] { position:relative; z-index:2; background:rgba(245,247,252,.86); }
+    div[data-testid="stHeader"] { position:relative; z-index:2; background:transparent; }
     .block-container { max-width:1240px; padding-top:2rem; padding-bottom:3rem; }
     section[data-testid="stSidebar"] { position:relative; z-index:2; background:#101c37; }
     section[data-testid="stSidebar"] > div { background:linear-gradient(180deg,#142343 0%,#101a32 100%); }
@@ -307,31 +306,30 @@ st.markdown(
     .page-hero h1 { position:relative; z-index:1; margin:0; color:#fff; font-size:1.75rem; line-height:1.25; font-weight:800; letter-spacing:-.035em; }
     .page-hero .hero-copy { position:relative; z-index:1; margin:.45rem 0 0; color:#d7e1ff; font-size:.96rem; }
     .hero-mark { position:relative; z-index:1; display:grid; place-items:center; width:3.5rem; height:3.5rem; border:1px solid rgba(255,255,255,.18); border-radius:18px; background:rgba(255,255,255,.11); font-size:1.65rem; flex:0 0 auto; }
-    h2, h3 { color:var(--ink); letter-spacing:-.025em; }
-    div[data-testid="stMetric"] { padding:1rem 1.15rem; background:var(--surface); border:1px solid var(--line); border-radius:17px; box-shadow:0 5px 17px rgba(31,47,87,.045); }
-    div[data-testid="stMetricLabel"] { color:var(--muted); font-size:.86rem; font-weight:600; }
-    div[data-testid="stMetricValue"] { color:var(--ink); font-weight:800; letter-spacing:-.04em; }
-    div[data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line) !important; border-radius:17px !important; background:#fff; box-shadow:0 5px 18px rgba(31,47,87,.04); }
+    h2, h3 { letter-spacing:-.025em; }
+    div[data-testid="stMetric"] { padding:1rem 1.15rem; border-radius:17px; }
+    div[data-testid="stMetricLabel"] { font-size:.86rem; font-weight:600; }
+    div[data-testid="stMetricValue"] { font-weight:800; letter-spacing:-.04em; }
+    div[data-testid="stVerticalBlockBorderWrapper"] { border-radius:17px !important; }
     div.stButton > button, div.stFormSubmitButton > button { min-height:2.7rem; border-radius:11px; font-weight:700; transition:transform .16s ease,box-shadow .16s ease; }
     div.stButton > button:hover, div.stFormSubmitButton > button:hover { transform:translateY(-1px); box-shadow:0 7px 16px rgba(69,91,191,.14); }
     button[data-testid="stBaseButton-primary"] { border:0; background:linear-gradient(110deg,#5368e8,#6e73ed); color:#fff; }
     div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea, div[data-baseweb="select"] > div { border-radius:10px; }
     div[data-testid="stTextInput"] input:focus, div[data-testid="stTextArea"] textarea:focus { border-color:#8290f3; box-shadow:0 0 0 2px rgba(83,104,232,.12); }
     div[data-testid="stAlert"] { border-radius:13px; }
-    div[data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:14px; overflow:hidden; }
-    .stTabs [data-baseweb="tab-list"] { gap:.5rem; border-bottom:1px solid var(--line); }
-    .stTabs [data-baseweb="tab"] { padding:.65rem 1rem; border-radius:10px 10px 0 0; color:var(--muted); font-weight:650; }
-    .stTabs [aria-selected="true"] { color:var(--primary) !important; }
+    div[data-testid="stDataFrame"] { border-radius:14px; overflow:hidden; }
+    .stTabs [data-baseweb="tab-list"] { gap:.5rem; }
+    .stTabs [data-baseweb="tab"] { padding:.65rem 1rem; border-radius:10px 10px 0 0; font-weight:650; }
     .auth-welcome { padding:1.5rem 1.3rem; }
     .auth-icon { display:grid; place-items:center; width:3.6rem; height:3.6rem; margin-bottom:1.2rem; border-radius:19px; background:linear-gradient(135deg,#6577f5,#39cbb7); color:#fff; font-size:1.7rem; box-shadow:0 9px 22px rgba(83,104,232,.23); }
-    .auth-welcome .auth-kicker { color:#5368e8; font-size:.72rem; font-weight:800; letter-spacing:.15em; text-transform:uppercase; }
-    .auth-welcome h1 { margin:.5rem 0 .6rem; color:#172443; font-size:2.45rem; line-height:1.12; letter-spacing:-.05em; }
-    .auth-welcome p { color:#71809b; font-size:1rem; line-height:1.7; }
-    .auth-note { margin-top:1.4rem; padding:1rem 1.1rem; border:1px solid #dce5ff; border-radius:14px; background:#edf2ff; color:#34466f; line-height:1.6; }
+    .auth-welcome .auth-kicker { font-size:.72rem; font-weight:800; letter-spacing:.15em; text-transform:uppercase; opacity:.78; }
+    .auth-welcome h1 { margin:.5rem 0 .6rem; font-size:2.45rem; line-height:1.12; letter-spacing:-.05em; }
+    .auth-welcome p { font-size:1rem; line-height:1.7; }
+    .auth-note { margin-top:1.4rem; padding:1rem 1.1rem; border-left:3px solid #5368e8; border-radius:0 14px 14px 0; line-height:1.6; }
     .question-meta { display:flex; align-items:center; justify-content:space-between; gap:.7rem; margin-bottom:.55rem; }
-    .topic-chip { display:inline-block; padding:.28rem .65rem; border-radius:999px; background:#edf2ff; color:#4357c6; font-size:.76rem; font-weight:750; }
-    .question-number { color:#98a3b8; font-size:.72rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
-    .result-count { display:inline-block; padding:.42rem .75rem; margin:.3rem 0 .7rem; border-radius:999px; background:#e8f8f5; color:#167e72; font-size:.8rem; font-weight:750; }
+    .topic-chip { display:inline-block; padding:.28rem .65rem; border:1px solid currentColor; border-radius:999px; color:inherit; background:transparent; font-size:.76rem; font-weight:750; }
+    .question-number { font-size:.72rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; opacity:.72; }
+    .result-count { display:inline-block; padding:.42rem .75rem; margin:.3rem 0 .7rem; border:1px solid currentColor; border-radius:999px; color:inherit; background:transparent; font-size:.8rem; font-weight:750; }
     @media (prefers-reduced-motion: reduce) { div[data-testid="stAppViewContainer"]::before, div[data-testid="stAppViewContainer"]::after { animation:none !important; } }
     @media (max-width:700px) { .block-container{padding-top:1rem;} .page-hero{padding:1.25rem 1.3rem;border-radius:18px;} .page-hero h1{font-size:1.4rem;} .hero-mark{width:2.8rem;height:2.8rem;} .auth-welcome h1{font-size:2rem;} }
     </style>
@@ -381,7 +379,7 @@ if "user" not in st.session_state:
         )
     with right:
         with st.container(border=True):
-            st.markdown("### Welcome to your portal")
+            st.markdown("### Welcome to Jobview")
             st.caption("Sign in to continue, or create a student account.")
             login_tab, register_tab = st.tabs(["🔐  Login", "✨  Create account"])
 
@@ -389,7 +387,7 @@ if "user" not in st.session_state:
                 with st.form("login_form"):
                     login_name = st.text_input("Username", key="login_username")
                     login_password = st.text_input("Password", type="password", key="login_password")
-                    login_clicked = st.form_submit_button("Login to portal", type="primary", use_container_width=True)
+                    login_clicked = st.form_submit_button("Login to Jobview", type="primary", use_container_width=True)
                 if login_clicked:
                     account = authenticate_user(login_name, login_password)
                     if account:
@@ -633,7 +631,7 @@ if "user" not in st.session_state:
 user = st.session_state.user
 safe_username = html.escape(user["username"])
 st.sidebar.markdown(
-    '<div class="sidebar-brand"><span class="brand-icon">🎯</span><span>PrepMate<small>INTERVIEW PORTAL</small></span></div>',
+    '<div class="sidebar-brand"><span class="brand-icon">🎯</span><span>Jobview<small>INTERVIEW PREP</small></span></div>',
     unsafe_allow_html=True,
 )
 st.sidebar.markdown(

@@ -1,4 +1,4 @@
-streamlit>=1.40,<2.0
+streamlit>=1.51,<2.0
 streamlit-autorefresh>=1.0.1,<2.0
 pandas>=2.0,<4.0
 SpeechRecognition>=3.14.6,<4.0

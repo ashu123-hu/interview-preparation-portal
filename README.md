@@ -1,6 +1,6 @@
-# Interview Preparation Portal
+# Jobview — Interview Preparation Portal
 
-A college project built with Python, Streamlit and SQLite. It supports account login and password reset, admin question CRUD, topic-based MCQ practice, per-user bookmarks and score history, timed mock tests, an AI answer coach, a voice or text AI interviewer, a dashboard and an adaptive weak-topic study plan.
+Jobview is a college project built with Python, Streamlit and SQLite. It supports account login and password reset, admin question CRUD, topic-based MCQ practice, per-user bookmarks and score history, timed mock tests, an AI answer coach, a voice or text AI interviewer, a dashboard and an adaptive weak-topic study plan.
 
 ## Feasible one-to-two week plan
 

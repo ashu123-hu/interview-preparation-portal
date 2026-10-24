@@ -2,8 +2,8 @@
 
 ## Suggested 5-minute presentation
 
-### Slide 1 — Interview Preparation Portal
-**Say:** “This project is a web portal that helps students practise interview questions, take timed mock tests, get AI feedback and review their progress.”
+### Slide 1 — Jobview: Interview Preparation Portal
+**Say:** “Jobview is a web app that helps students practise interview questions, take timed mock tests, get AI feedback and review their progress.”
 
 ### Slide 2 — Problem and objective
 - Students need a focused way to practise by topic.
